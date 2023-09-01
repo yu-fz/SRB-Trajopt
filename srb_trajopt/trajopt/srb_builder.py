@@ -20,9 +20,7 @@ from pydrake.geometry import(
     Sphere
 )
 
-import time
-
-class SRBTrajopt:
+class SRBBuilder:
     def __init__(self, 
                  options: SRBTrajoptOptions,
                  headless: bool = False) -> None:
@@ -32,12 +30,14 @@ class SRBTrajopt:
         self.headless = headless
         self.meshcat = StartMeshcat() if not headless else None
         self.srb_diagram = None 
-        self.create_srb_diagram()
 
     def create_srb_diagram(self):
         """
         Sets up SRB plant definition, and creates diagram containing the
         SRB plant and scene graph
+
+        Returns:
+            srb_diagram: Diagram containing SRB plant and scene graph
         """
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step = 0.001)
@@ -65,12 +65,16 @@ class SRBTrajopt:
 
         self.plant = plant
         self.srb_diagram = builder.Build()
+        return self.srb_diagram
 
 
     def render_srb(self) -> None:
         """
         Visualizes the SRB in Drake Visualizer
         """
+        if self.srb_diagram is None:
+            raise ValueError("SRB diagram not initialized, call create_srb_diagram() first")
+        
         self.meshcat.Delete()
         diagram_context = self.srb_diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyContextFromRoot(diagram_context)
@@ -79,8 +83,3 @@ class SRBTrajopt:
         self.plant.SetFreeBodyPose(plant_context, self.plant.GetBodyByName("body"), X_WB)
         # render the plant in Drake Visualizer
         self.srb_diagram.ForcedPublish(diagram_context)
-        time.sleep(3.0)
-
-
-
-

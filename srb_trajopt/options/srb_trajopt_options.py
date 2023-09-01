@@ -6,7 +6,7 @@ class SRBTrajoptOptions:
     """
     def __init__(self) -> None:
         # SRB model parameters
-        self._dimensions = np.zeros(3)
+        self._dimensions = np.array([0.203, 0.254, 0.457])
         self._mass = 0.0
         self._min_leg_extension = 0.5
         self._max_leg_extension = 1.2
