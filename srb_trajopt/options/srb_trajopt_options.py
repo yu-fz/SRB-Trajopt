@@ -14,6 +14,13 @@ class SRBTrajoptOptions:
         self._mu = 0.9
         self._color = np.array([0.9608, 0.9608, 0.8627, 1.0])
 
+        self.foot_length = 0.1
+        self.foot_width = 0.05
+
+        # trajopt parameters
+        self.N # number of knot points
+        self.T # total time
+
     @property
     def dimensions(self):
         return self._dimensions
