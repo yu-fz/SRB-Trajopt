@@ -60,4 +60,5 @@ class SRBBuilder:
         plant.Finalize()
 
         srb_diagram = builder.Build()
-        return srb_diagram
+        ad_srb_diagram = srb_diagram.ToAutoDiffXd()
+        return srb_diagram, ad_srb_diagram
