@@ -48,12 +48,15 @@ import jax.numpy as jnp
 
 # import jax constraints
 from .jax_constraints import (
-    com_ddot_constraint_jit,
+    com_dot_dircol_constraint_jit,
+    com_dircol_constraint_jit,
 )
 from .jax_utils import (
     np_to_jax,
     batch_np_to_jax,
 )
+
+import matplotlib.pyplot as plt
 class SRBTrajopt:
     def __init__(self, 
                  options: SRBTrajoptOptions,
@@ -62,6 +65,7 @@ class SRBTrajopt:
         srb_builder = SRBBuilder(self.options, headless)
         self.srb_diagram, self.ad_srb_diagram = srb_builder.create_srb_diagram()
         self.meshcat = srb_builder.meshcat
+        self.body_v0 = np.array([0., 0., 0.]) # initial body velocity
 
     @property
     def plant(self):
@@ -112,7 +116,7 @@ class SRBTrajopt:
         self.h = prog.NewContinuousVariables(self.N - 1, "h")
         self.com = prog.NewContinuousVariables(3, self.N, "com")
         self.com_dot = prog.NewContinuousVariables(3, self.N, "com_dot")
-        self.com_ddot = prog.NewContinuousVariables(3, self.N-1, "com_ddot")
+        #self.com_ddot = prog.NewContinuousVariables(3, self.N-1, "com_ddot")
 
         self.body_quat = prog.NewContinuousVariables(4, self.N, "body_quat")
         self.body_angvel = prog.NewContinuousVariables(3, self.N, "body_angular_vel")
@@ -149,9 +153,9 @@ class SRBTrajopt:
         
         """
         default_com = np.array([0., 0., 1.])
-        default_com_dot = np.array([0., 0., 0.])
+        default_com_dot = self.body_v0
         default_quat = np.array([1., 0., 0., 0.])
-        default_angvel = np.array([0.0, 0.0, 0.1])
+        default_angvel = np.array([0., 0., 0.1])
         default_com_ddot = np.array([0., 0., self.gravity[2]])
         for n in range(self.N):
             # set CoM position guess 
@@ -164,12 +168,12 @@ class SRBTrajopt:
                 self.com_dot[:, n],
                 default_com_dot
             )
-            if n < self.N - 1:
-                # set CoM acceleration guess
-                prog.SetInitialGuess(
-                    self.com_ddot[:, n],
-                    default_com_ddot
-                )
+            # if n < self.N - 1:
+            #     # set CoM acceleration guess
+            #     prog.SetInitialGuess(
+            #         self.com_ddot[:, n],
+            #         default_com_ddot
+            #     )
             # set body quaternion guess
             prog.SetInitialGuess(
                 self.body_quat[:, n],
@@ -227,6 +231,16 @@ class SRBTrajopt:
                 quat
             )
 
+    def add_initial_velocity_constraint(self, prog: MathematicalProgram):
+        """
+        Constrains the initial CoM velocity to be zero
+        """
+        
+        prog.AddBoundingBoxConstraint(
+            self.body_v0, 
+            self.body_v0, 
+            self.com_dot[:, 0]).evaluator().set_description("initial body velocity constraint")
+
     def add_quaternion_integration_constraint(self, prog: MathematicalProgram):
         """
         Add euler quaternion integration constraint to ensure that q1 rotates to q2 in dt time for a 
@@ -245,66 +259,175 @@ class SRBTrajopt:
                            
     def add_com_position_constraint(self, prog: MathematicalProgram):
         """
-        Integrates the CoM velocity decision variables to constrain CoM position decision variables
+        Adds direct collocation constraint on CoM positions by integrating CoM velocities
         """
-        pass 
+        def com_position_constraint(x: np.ndarray):
+            """
+            Computes the CoM position constraint from CoM velocity
+            """
+            h, com_k1, com_dot_k1, foot_forces_k1, com_k2, com_dot_k2 = np.split(x, [
+                1,              # h
+                1 + 3,          # com_k1
+                1 + 3 + 3,      # com_dot_k1
+                1 + 3 + 3 + 24, # foot forces k1 
+                1 + 3 + 3 + 24 + 3   # com_k2
+            ])
+            foot_forces_k1 = foot_forces_k1.reshape((3, 8), order='F')
+            if isinstance(x[0], AutoDiffXd):
+                com_k1_val = ExtractValue(com_k1).reshape(3,)
+                com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
+                foot_forces_k1_val = ExtractValue(foot_forces_k1)
+                com_k2_val = ExtractValue(com_k2).reshape(3,)
+                com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
+                h_val = ExtractValue(h)
+                # Compute the constraint value and gradients using JAX
+                constraint_val, flattened_constraint_jac = com_dircol_constraint_jit(
+                    h_val.item(),
+                    com_k1_val,
+                    com_dot_k1_val,
+                    foot_forces_k1_val,
+                    com_k2_val,
+                    com_dot_k2_val,
+                    self.mass,
+                    self.gravity)
+
+                constraint_val_ad = InitializeAutoDiff(value=constraint_val,
+                                                       gradient=flattened_constraint_jac)
+                return constraint_val_ad
+            else:
+                sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+                com_ddot_k1 = (sum_forces_k1 / self.mass) + self.gravity
+                com_dot_kc = com_dot_k1 + (h/2)*com_ddot_k1
+                # direct collocation constraint formula
+                rhs = (-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2)
+                return com_dot_kc - rhs 
+        
+        for n in range(self.N - 2):
+            # Define a list of variables to concatenate
+            comddot_constraint_variables = [
+                [self.h[n]],
+                self.com[:, n],
+                self.com_dot[:, n],
+                *[self.contact_forces[i][:, n] for i in range(8)],
+                self.com[:, n+1],
+                self.com_dot[:, n+1],
+                ]
+            flattened_variables = [item for sublist in comddot_constraint_variables for item in sublist]
+            
+            prog.AddConstraint(
+                com_position_constraint,
+                lb=[0,0,0],
+                ub=[0,0,0],
+                vars=np.array(flattened_variables),
+                description=f"com_position_constraint_{n}"
+            )
     
-    def add_com_acceleration_constraint(self, prog: MathematicalProgram):
+    def add_com_velocity_constraint(self, prog: MathematicalProgram):
         """
-        Constrains the CoM acceleration decision variables to be consistent with the contact forces
+        Adds direct collocation constraint on CoM velocities by evaluating the dynamics x_ddot = 1/m * sum(F_i) + g
         """
-        def com_acceleration_constraint(x: np.ndarray,):
+        def com_velocity_constraint(x: np.ndarray):
             """
             Computes the CoM velocity constraint for a given CoM velocity and contact forces
             p_ddot = 1/m * sum(F_i) + g
             """
-            com_ddot, left_foot_forces, right_foot_forces = np.split(x, [3, # com_ddot 
-                                                                         3 + 12, # left foot
-                                                                         ])
-            
-            left_foot_forces = left_foot_forces.reshape((3, 4), order='F')
-            right_foot_forces = right_foot_forces.reshape((3, 4), order='F')
-            foot_forces = np.concatenate((left_foot_forces, right_foot_forces), axis=1)
+            h, com_dot_k1, foot_forces_k1, com_dot_k2, foot_forces_k2 = np.split(x, [
+                1,              # h
+                1 + 3,          # com_dot_k1
+                1 + 3 + 24,     # foot_forces_k1
+                1 + 3 + 24 + 3  # com_dot_k2
+            ])
+            foot_forces_k1 = foot_forces_k1.reshape((3, 8), order='F')
+            foot_forces_k2 = foot_forces_k2.reshape((3, 8), order='F')
             # Check if the first element of x is an AutoDiffXd object
-            if isinstance(x[0], AutoDiffXd):                
+            if isinstance(x[0], AutoDiffXd):
+                # sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+                # sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+                # sum_forces_k_c = (sum_forces_k1 + sum_forces_k2) / 2
+                # com_ddot_k1 = (sum_forces_k1 / self.mass) + self.gravity
+                # com_ddot_k2 = (sum_forces_k2 / self.mass) + self.gravity
+                # com_ddot_kc = (sum_forces_k_c / self.mass) + self.gravity
+                # # direct collocation constraint formula
+                # rhs = (-3/(2*h))*(com_dot_k1 - com_dot_k2) - (1/4)*(com_ddot_k1 + com_ddot_k2)
+                # return com_ddot_kc - rhs 
                 # Extract values from autodiff decision variables
-                com_ddot_val = ExtractValue(com_ddot).reshape(3,)
-                foot_forces_val = ExtractValue(foot_forces)
+                com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
+                foot_forces_k1_val = ExtractValue(foot_forces_k1)
+                com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
+                foot_forces_k2_val = ExtractValue(foot_forces_k2)
+                h_val = ExtractValue(h)
                 # Compute the constraint value and gradients using JAX
-                constraint_val, flattened_constraint_jac = com_ddot_constraint_jit(
-                    com_ddot_val,
-                    foot_forces_val,
+                constraint_val, flattened_constraint_jac = com_dot_dircol_constraint_jit(
+                    h_val.item(),
+                    com_dot_k1_val,
+                    foot_forces_k1_val,
+                    com_dot_k2_val,
+                    foot_forces_k2_val,
                     self.mass,
                     self.gravity)
-                constraint_val_ad = InitializeAutoDiff(value=constraint_val,gradient=flattened_constraint_jac)
+
+                constraint_val_ad = InitializeAutoDiff(value=constraint_val,
+                                                       gradient=flattened_constraint_jac)
                 return constraint_val_ad
             else:
-                foot_forces = np.concatenate((left_foot_forces, right_foot_forces), axis=1)
-                sum_forces = np.sum(foot_forces, axis=1)
-                mg = self.mass * self.gravity[2]
-                acc = np.array([0., 0., 1.]) + (sum_forces/mg)
-                return acc - com_ddot/self.gravity[2]
+                sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+                sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+                sum_forces_k_c = (sum_forces_k1 + sum_forces_k2) / 2
+                com_ddot_k1 = (sum_forces_k1 / self.mass) + self.gravity
+                com_ddot_k2 = (sum_forces_k2 / self.mass) + self.gravity
+                com_ddot_kc = (sum_forces_k_c / self.mass) + self.gravity
+                # direct collocation constraint formula
+                rhs = (-3/(2*h))*(com_dot_k1 - com_dot_k2) - (1/4)*(com_ddot_k1 + com_ddot_k2)
+                return com_ddot_kc - rhs 
+                # #foot_forces = np.concatenate((left_foot_forces, right_foot_forces), axis=1)
+                # sum_forces = np.sum(foot_forces, axis=1)
+                # mg = self.mass * self.gravity[2]
+                # acc = np.array([0., 0., 1.]) + (sum_forces/mg)
+                # return acc - com_ddot/self.gravity[2]
         
-        for n in range(self.N - 1):
+        for n in range(self.N - 2):
             # Define a list of variables to concatenate
             comddot_constraint_variables = [
-                self.com_ddot[:, n],
-                *[self.contact_forces[i][:, n] for i in range(8)]]
+                [self.h[n]],
+                self.com_dot[:, n],
+                *[self.contact_forces[i][:, n] for i in range(8)],
+                self.com_dot[:, n+1],
+                *[self.contact_forces[i][:, n+1] for i in range(8)],]
             flattened_variables = [item for sublist in comddot_constraint_variables for item in sublist]
             
             prog.AddConstraint(
-                com_acceleration_constraint,
+                com_velocity_constraint,
                 lb=[0,0,0],
                 ub=[0,0,0],
                 vars=np.array(flattened_variables),
-                description=f"com_acceleration_constraint_{n}"
+                description=f"com_velocity_constraint_{n}"
             )
 
     def add_angular_velocity_constraint(self, prog: MathematicalProgram):
         """
         Integrates the contact torque decision variables to constrain angular velocity decision variables
         """
-        pass
+        def angular_velocity_constraint(x: np.ndarray):
+            pass 
+
+
+        for n in range(self.N - 2):
+            # Define a list of variables to concatenate
+            comddot_constraint_variables = [
+                [self.h[n]],
+                self.com_dot[:, n],
+                *[self.contact_forces[i][:, n] for i in range(8)],
+                self.com_dot[:, n+1],
+                *[self.contact_forces[i][:, n+1] for i in range(8)],]
+            flattened_variables = [item for sublist in comddot_constraint_variables for item in sublist]
+            
+            prog.AddConstraint(
+                angular_velocity_constraint,
+                lb=[0,0,0],
+                ub=[0,0,0],
+                vars=np.array(flattened_variables),
+                description=f"com_velocity_constraint_{n}"
+            )
 
     def add_contact_wrench_cone_constraint(self, prog: MathematicalProgram):
         """
@@ -329,7 +452,9 @@ class SRBTrajopt:
         self.add_time_scaling_constraint(prog)
         self.add_unit_quaternion_constraint(prog)
         self.add_quaternion_integration_constraint(prog)
-        self.add_com_acceleration_constraint(prog)
+        self.add_com_velocity_constraint(prog)
+        self.add_com_position_constraint(prog)
+        self.add_initial_velocity_constraint(prog)
 
         return prog
 
@@ -360,7 +485,13 @@ class SRBTrajopt:
         # print(res.GetSolution(self.h))
         # print(np.sum(res.GetSolution(self.h)))
         # print(res.GetSolution(self.body_quat))
-        print(res.GetSolution(self.com_ddot))
+        #print(res.GetSolution(self.com))
+        # plot result 
+        time = np.cumsum(np.hstack((0, res.GetSolution(self.h))))
+        # plt.plot(time, res.GetSolution(self.com)[2, :])
+        # plt.show()
+        # print(res.GetSolution(self.contact_forces[0]))
+        # print(res.GetSolution(self.com_dot))
 
         return res
 
