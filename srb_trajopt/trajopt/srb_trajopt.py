@@ -1,5 +1,8 @@
 from options import SRBTrajoptOptions
 from .srb_builder import SRBBuilder
+
+from functools import partial
+
 from pydrake.all import (
     PiecewisePolynomial,
     MathematicalProgram,
@@ -10,6 +13,11 @@ from pydrake.all import (
     UnitInertia,
     StartMeshcat,
     MeshcatVisualizer,
+    SpatialInertia_,
+    RotationalInertia,
+    Simulator,
+    Context,
+    Simulator_
 )
 
 from pydrake.math import (
@@ -26,6 +34,7 @@ from pydrake.autodiffutils import (
     ExtractGradient,
     ExtractValue,
     InitializeAutoDiff,
+    
 )
 
 from pydrake.solvers import (
@@ -56,6 +65,11 @@ from .jax_utils import (
     batch_np_to_jax,
 )
 
+from .autodiffxd_utils import (
+    autoDiffArrayEqual,
+    extract_ad_value_and_gradient
+)
+
 import matplotlib.pyplot as plt
 class SRBTrajopt:
     def __init__(self, 
@@ -64,9 +78,12 @@ class SRBTrajopt:
         self.options = options
         srb_builder = SRBBuilder(self.options, headless)
         self.srb_diagram, self.ad_srb_diagram = srb_builder.create_srb_diagram()
+        self.srb_body_idx = self.ad_plant.GetBodyIndices(self.ad_plant.GetModelInstanceByName("body"))[0]
         self.meshcat = srb_builder.meshcat
-        self.body_v0 = np.array([0., 0., 0.]) # initial body velocity
-
+        self.body_v0 = np.array([0., 0., 2.]) # initial body velocity
+        self.ad_simulator = Simulator_[AutoDiffXd](self.ad_srb_diagram, 
+                                      self.ad_srb_diagram.CreateDefaultContext())
+        self.ad_simulator.Initialize()
     @property
     def plant(self):
         """
@@ -120,8 +137,9 @@ class SRBTrajopt:
 
         self.body_quat = prog.NewContinuousVariables(4, self.N, "body_quat")
         self.body_angvel = prog.NewContinuousVariables(3, self.N, "body_angular_vel")
-        self.p_w_lf = prog.NewContinuousVariables(3, self.N, "left_foot_pos")
-        self.p_w_rf = prog.NewContinuousVariables(3, self.N, "right_foot_pos")
+        # position of foot measured from the body frame expressed in world frame
+        self.p_B_LF_W = prog.NewContinuousVariables(3, self.N, "left_foot_pos")
+        self.p_B_RF_W = prog.NewContinuousVariables(3, self.N, "right_foot_pos")
 
         #####################################
         # define control decision variables #
@@ -153,9 +171,9 @@ class SRBTrajopt:
         
         """
         default_com = np.array([0., 0., 1.])
-        default_com_dot = self.body_v0
+        default_com_dot = np.array([0., 0., 0.])
         default_quat = np.array([1., 0., 0., 0.])
-        default_angvel = np.array([0., 0., 0.1])
+        default_angvel = np.array([0., 0., 0.])
         default_com_ddot = np.array([0., 0., self.gravity[2]])
         for n in range(self.N):
             # set CoM position guess 
@@ -247,7 +265,6 @@ class SRBTrajopt:
         given angular velocity w assuming that the angular velocity is constant over the time interval
         """
         for n in range(self.N - 1):
-            # Define symbolic variables
             quat1 = self.body_quat[:, n]
             quat2 = self.body_quat[:, n+1]
             angular_vel = self.body_angvel[:, n]
@@ -266,10 +283,10 @@ class SRBTrajopt:
             Computes the CoM position constraint from CoM velocity
             """
             h, com_k1, com_dot_k1, foot_forces_k1, com_k2, com_dot_k2 = np.split(x, [
-                1,              # h
-                1 + 3,          # com_k1
-                1 + 3 + 3,      # com_dot_k1
-                1 + 3 + 3 + 24, # foot forces k1 
+                1,                   # h
+                1 + 3,               # com_k1
+                1 + 3 + 3,           # com_dot_k1
+                1 + 3 + 3 + 24,      # foot forces k1 
                 1 + 3 + 3 + 24 + 3   # com_k2
             ])
             foot_forces_k1 = foot_forces_k1.reshape((3, 8), order='F')
@@ -341,16 +358,6 @@ class SRBTrajopt:
             foot_forces_k2 = foot_forces_k2.reshape((3, 8), order='F')
             # Check if the first element of x is an AutoDiffXd object
             if isinstance(x[0], AutoDiffXd):
-                # sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
-                # sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
-                # sum_forces_k_c = (sum_forces_k1 + sum_forces_k2) / 2
-                # com_ddot_k1 = (sum_forces_k1 / self.mass) + self.gravity
-                # com_ddot_k2 = (sum_forces_k2 / self.mass) + self.gravity
-                # com_ddot_kc = (sum_forces_k_c / self.mass) + self.gravity
-                # # direct collocation constraint formula
-                # rhs = (-3/(2*h))*(com_dot_k1 - com_dot_k2) - (1/4)*(com_ddot_k1 + com_ddot_k2)
-                # return com_ddot_kc - rhs 
-                # Extract values from autodiff decision variables
                 com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
                 foot_forces_k1_val = ExtractValue(foot_forces_k1)
                 com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
@@ -379,11 +386,7 @@ class SRBTrajopt:
                 # direct collocation constraint formula
                 rhs = (-3/(2*h))*(com_dot_k1 - com_dot_k2) - (1/4)*(com_ddot_k1 + com_ddot_k2)
                 return com_ddot_kc - rhs 
-                # #foot_forces = np.concatenate((left_foot_forces, right_foot_forces), axis=1)
-                # sum_forces = np.sum(foot_forces, axis=1)
-                # mg = self.mass * self.gravity[2]
-                # acc = np.array([0., 0., 1.]) + (sum_forces/mg)
-                # return acc - com_ddot/self.gravity[2]
+
         
         for n in range(self.N - 2):
             # Define a list of variables to concatenate
@@ -407,22 +410,153 @@ class SRBTrajopt:
         """
         Integrates the contact torque decision variables to constrain angular velocity decision variables
         """
-        def angular_velocity_constraint(x: np.ndarray):
-            pass 
+
+        # Create autodiff contexts for this constraint (to maximize cache hits)
+        ad_angular_velocity_dynamics_context = [
+            self.ad_plant.CreateDefaultContext() for i in range(self.N)
+        ]
+
+        def get_srb_inertia_mat_from_context(context: Context):
+                spatial_inertia_k1 = self.ad_plant.CalcSpatialInertia(
+                    context,
+                    self.ad_plant.world_frame(), 
+                    [self.srb_body_idx]
+                )
+                rot_inertia = spatial_inertia_k1.CalcRotationalInertia()
+                inertia_mat = rot_inertia.CopyToFullMatrix3()
+
+                return inertia_mat
+
+        def angular_velocity_constraint(x: np.ndarray, context_index: int):
+            # Define variable names and their corresponding indices
+            var_names = {
+                'h': 1,
+                'com_k1': 4,
+                'quat_k1': 8,
+                'com_dot_k1': 11,
+                'body_angvel_k1': 14,
+                'p_lf_k1': 17,
+                'p_rf_k1': 20,
+                'foot_forces_k1': 44,
+                'foot_torques_k1': 68,
+                'com_k2': 71,
+                'body_angvel_k2': 74,
+                'p_lf_k2': 77,
+                'p_rf_k2': 80,
+                'foot_forces_k2': 104,
+                'foot_torques_k2': 128,
+            }
+            # Split the input array using the indices
+            split_vars = np.split(x, [
+                1,                   # h
+                4,                   # com_k1
+                8,                   # quat_k1
+                11,                  # com_dot_k1
+                14,                  # body_angvel_k1
+                17,                  # p_lf_k1
+                20,                  # p_rf_k1
+                44,                  # foot_forces_k1
+                68,                  # foot_torques_k1
+                71,                  # com_k2
+                74,                  # body_angvel_k2
+                77,                  # p_lf_k2
+                80,                  # p_rf_k2
+                104,                 # foot_forces_k2
+            ])
+            # Unpack the split variables into meaningful names
+            h, com_k1, quat_k1, com_dot_k1, body_angvel_k1, p_lf_k1, p_rf_k1, \
+            foot_forces_k1, foot_torques_k1, com_k2, body_angvel_k2, \
+            p_lf_k2, p_rf_k2, foot_forces_k2, foot_torques_k2 = split_vars
+
+            if isinstance(x[0], AutoDiffXd):
+                srb_k1_pos = np.concatenate([quat_k1, com_k1])
+                srb_k1_vel = np.concatenate([body_angvel_k1, com_dot_k1])
+                srb_pos_equal = autoDiffArrayEqual(
+                    srb_k1_pos,
+                    self.ad_plant.GetPositions(
+                        ad_angular_velocity_dynamics_context[context_index]
+                    ),
+                )
+                srb_vel_equal = autoDiffArrayEqual(
+                    srb_k1_vel,
+                    self.ad_plant.GetVelocities(
+                        ad_angular_velocity_dynamics_context[context_index]
+                    ),
+                )
+                if not (srb_pos_equal or srb_vel_equal):
+                    self.ad_plant.SetPositions(
+                        ad_angular_velocity_dynamics_context[context_index], srb_k1_pos
+                    )
+                    self.ad_plant.SetVelocities(
+                        ad_angular_velocity_dynamics_context[context_index], srb_k1_vel
+                    )
+                
+                inertia_mat_k1 = get_srb_inertia_mat_from_context(
+                    ad_angular_velocity_dynamics_context[context_index]
+                )
+
+                inertia_mat_k1_val, del_inertia_mat_k1_del_x = extract_ad_value_and_gradient(
+                    inertia_mat_k1
+                )
+                print(inertia_mat_k1)
+                
+                # set simulator context state 
+                sim_context = self.ad_simulator.get_mutable_context()
+                sim_context.SetTime(0.)
+                sim_context.SetContinuousState(
+                    ad_angular_velocity_dynamics_context[context_index].get_continuous_state().CopyToVector()
+                )
+
+                collocation_time = h.item()/2
+                self.ad_simulator.AdvanceTo(collocation_time)
+                sim_state = sim_context.get_continuous_state().CopyToVector()
+                ad_angular_velocity_dynamics_context[context_index].SetContinuousState(sim_state)
+
+                inertia_mat_kc = get_srb_inertia_mat_from_context(
+                    ad_angular_velocity_dynamics_context[context_index]
+                )
+
+                inertia_mat_kc_val, del_inertia_mat_kc_del_x = extract_ad_value_and_gradient(
+                    inertia_mat_kc
+                )
+                t2 = h.item()
+                self.ad_simulator.AdvanceTo(t2)
+
+                # set velocity dynamics context state to simulator context state
+                sim_state = sim_context.get_continuous_state().CopyToVector()
+                ad_angular_velocity_dynamics_context[context_index].SetContinuousState(sim_state)
+                inertia_mat_k2 = get_srb_inertia_mat_from_context(
+                    ad_angular_velocity_dynamics_context[context_index]
+                )
 
 
+            else:   
+            
+                pass 
+        
         for n in range(self.N - 2):
             # Define a list of variables to concatenate
             comddot_constraint_variables = [
                 [self.h[n]],
+                self.com[:, n],
+                self.body_quat[:, n],
                 self.com_dot[:, n],
+                self.body_angvel[:, n],
+                self.p_B_LF_W[:, n],
+                self.p_B_RF_W[:, n],
                 *[self.contact_forces[i][:, n] for i in range(8)],
-                self.com_dot[:, n+1],
-                *[self.contact_forces[i][:, n+1] for i in range(8)],]
+                *[self.contact_torques[i][:, n] for i in range(8)],
+                self.com[:, n + 1],
+                self.body_angvel[:, n + 1],
+                self.p_B_LF_W[:, n + 1],
+                self.p_B_RF_W[:, n + 1],
+                *[self.contact_forces[i][:, n + 1] for i in range(8)],
+                *[self.contact_torques[i][:, n + 1] for i in range(8)],]
+            
             flattened_variables = [item for sublist in comddot_constraint_variables for item in sublist]
             
             prog.AddConstraint(
-                angular_velocity_constraint,
+                partial(angular_velocity_constraint, context_index=n),
                 lb=[0,0,0],
                 ub=[0,0,0],
                 vars=np.array(flattened_variables),
@@ -455,6 +589,7 @@ class SRBTrajopt:
         self.add_com_velocity_constraint(prog)
         self.add_com_position_constraint(prog)
         self.add_initial_velocity_constraint(prog)
+        self.add_angular_velocity_constraint(prog)
 
         return prog
 

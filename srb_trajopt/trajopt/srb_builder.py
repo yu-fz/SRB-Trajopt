@@ -36,7 +36,7 @@ class SRBBuilder:
             srb_diagram: Diagram containing SRB plant, scene graph, and visualizer
         """
         builder = DiagramBuilder()
-        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step = 0.001)
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step = 0)
         if not self.headless:
             meshcat_vis = MeshcatVisualizer.AddToBuilder(builder, scene_graph, self.meshcat)
             meshcat_vis.set_name("visualizer")
