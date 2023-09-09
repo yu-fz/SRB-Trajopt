@@ -2,6 +2,16 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from functools import partial
+import inspect
+
+# Function to determine the number of arguments dynamically and cache the result
+def get_num_args(fn):
+    if hasattr(fn, '_num_args'):
+        return fn._num_args
+    num_args = len(inspect.signature(fn).parameters)
+    fn._num_args = num_args  # Cache the result
+    return num_args
+
 
 @jax.jit
 def np_to_jax(np_array):

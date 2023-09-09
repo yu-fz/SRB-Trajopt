@@ -360,18 +360,21 @@ class SRBTrajopt:
             """
             Computes the CoM position constraint from CoM velocity
             """
-            h, com_k1, com_dot_k1, foot_forces_k1, com_k2, com_dot_k2 = np.split(x, [
-                1,                   # h
-                1 + 3,               # com_k1
-                1 + 3 + 3,           # com_dot_k1
-                1 + 3 + 3 + 24,      # foot forces k1 
-                1 + 3 + 3 + 24 + 3   # com_k2
+            h, com_k1, com_dot_k1, foot_forces_k1, foot_forces_k2, com_k2, com_dot_k2 = np.split(x, [
+                1,                        # h
+                1 + 3,                    # com_k1
+                1 + 3 + 3,                # com_dot_k1
+                1 + 3 + 3 + 24,           # foot forces k1
+                1 + 3 + 3 + 24 + 24,      # foot_forces_k2 
+                1 + 3 + 3 + 24 + 24 + 3   # com_k2
             ])
             foot_forces_k1 = foot_forces_k1.reshape((3, 8), order='F')
+            foot_forces_k2 = foot_forces_k2.reshape((3, 8), order='F')
             if isinstance(x[0], AutoDiffXd):
                 com_k1_val = ExtractValue(com_k1).reshape(3,)
                 com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
                 foot_forces_k1_val = ExtractValue(foot_forces_k1)
+                foot_forces_k2_val = ExtractValue(foot_forces_k2)
                 com_k2_val = ExtractValue(com_k2).reshape(3,)
                 com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
                 h_val = ExtractValue(h)
@@ -381,6 +384,7 @@ class SRBTrajopt:
                     com_k1_val,
                     com_dot_k1_val,
                     foot_forces_k1_val,
+                    foot_forces_k2_val,
                     com_k2_val,
                     com_dot_k2_val,
                     self.mass,
@@ -395,19 +399,21 @@ class SRBTrajopt:
                     com_k1,
                     com_dot_k1,
                     foot_forces_k1,
+                    foot_forces_k2,
                     com_k2,
                     com_dot_k2,
                     self.mass,
                     self.gravity)
                 return np.array(constraint_val, dtype=float).reshape(3,1)
         
-        for n in range(self.N - 1):
+        for n in range(self.N - 2):
             # Define a list of variables to concatenate
             comddot_constraint_variables = [
                 [self.h[n]],
                 self.com[:, n],
                 self.com_dot[:, n],
                 *[self.contact_forces[i][:, n] for i in range(8)],
+                *[self.contact_forces[i][:, n+1] for i in range(8)],
                 self.com[:, n+1],
                 self.com_dot[:, n+1],
                 ]
@@ -458,7 +464,6 @@ class SRBTrajopt:
                                                        gradient=constraint_jac)
                 return constraint_val_ad
             else:
-
                 constraint_val, constraint_jac = com_dot_dircol_constraint_jit(
                     h.item(),
                     com_dot_k1,
@@ -696,7 +701,7 @@ class SRBTrajopt:
             for i in range(len(self.contact_forces)):
                 prog.AddBoundingBoxConstraint(
                     0.,
-                    self.in_stance[i, n] * self.mass * -self.gravity[2],
+                    self.in_stance[i, n]*max_z_grf,
                     self.contact_forces[i][2, n],
                     ).evaluator().set_description("nonnegative foot z force")
 
@@ -954,7 +959,8 @@ class SRBTrajopt:
         self.add_quaternion_integration_constraint(prog)
         self.add_com_velocity_constraint(prog)
         self.add_com_position_constraint(prog)
-        self.add_initial_velocity_constraint(prog)
+        
+        #self.add_initial_velocity_constraint(prog)
         self.add_step_length_kinematic_constraint(prog)
         self.add_angular_velocity_constraint(prog)
         self.add_contact_wrench_cone_constraint(prog)
@@ -1036,7 +1042,7 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.zeros((8, N))
+        in_stance = np.ones((8, N))
         in_stance[0:4, 0:int(N/2)] = 1
         in_stance[4:8, int(N/2)-1:N] = 1
         self.in_stance = in_stance

@@ -7,7 +7,7 @@ class SRBTrajoptOptions:
     def __init__(self) -> None:
         # SRB model parameters
         self._dimensions = np.array([0.203, 0.254, 0.457])
-        self._mass = 5.
+        self._mass = 55.
         self._leg_extension_bounds = np.array([0.2, 0.2, 1.0]) # x,y,z
         self._mu = 0.85
         self._color = np.array([0.9608, 0.9608, 0.8627, 1.0])
@@ -18,12 +18,12 @@ class SRBTrajoptOptions:
         # Control Limits 
 
         # max normalized Z axis grf 
-        self._max_z_grf = 2000.
+        self._max_z_grf = 2.
         self._min_com_height = 0.2
 
         # trajopt parameters
         self.N = 10 # number of knot points
-        self.T = 3 # total time
+        self.T = 1 # total time
 
     @property
     def dimensions(self):

@@ -10,6 +10,7 @@ def com_dircol_constraint_jit(
     com_k1: np.ndarray,
     com_dot_k1: np.ndarray,
     foot_forces_k1: np.ndarray,
+    foot_forces_k2: np.ndarray,
     com_k2: np.ndarray,
     com_dot_k2: np.ndarray,
     mass: float, 
@@ -20,34 +21,42 @@ def com_dircol_constraint_jit(
             com_k1 : np.ndarray, 
             com_dot_k1 : np.ndarray,
             foot_forces_k1 : np.ndarray,
+            foot_forces_k2 : np.ndarray,
             com_k2 : np.ndarray,  
             com_dot_k2 : np.ndarray):
-        
+        g = -gravity[2]
         sum_forces_k1 = jnp.sum(foot_forces_k1, axis=1)
-        com_ddot_k1 = (sum_forces_k1 / mass) + gravity
-        com_dot_kc = 0.5*(com_k1 + com_k2) + (h/8)*(com_ddot_k1 - com_dot_k2)#com_dot_k1 + (h/2)*com_ddot_k1
+        sum_forces_k2 = jnp.sum(foot_forces_k2, axis=1)
+        com_ddot_k1 = g*(sum_forces_k1 / mass) + gravity
+        com_ddot_k2 = g*(sum_forces_k1 / mass) + gravity
+        com_dot_kc = 0.5*(com_dot_k1 + com_dot_k2) + (h/8)*(com_ddot_k1 - com_ddot_k2)#com_dot_k1 + (h/2)*com_ddot_k1
         # direct collocation constraint formula
         rhs = (-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2)
         return com_dot_kc - rhs 
 
     # Compute the value of the constraint
-    constraint_val = eval_constraint(h, com_k1, com_dot_k1, foot_forces_k1, com_k2, com_dot_k2)
+    constraint_val = eval_constraint(h, com_k1, com_dot_k1, foot_forces_k1, foot_forces_k2, com_k2, com_dot_k2)
+
+    # Determine the number of arguments dynamically (cached)
+    num_args = get_num_args(eval_constraint)
 
     # Compute the Jacobian using jacfwd
-    jacobian_fn = jax.jacfwd(eval_constraint, argnums=tuple(range(6)))
-    jacobian = jacobian_fn(h, com_k1, com_dot_k1, foot_forces_k1, com_k2, com_dot_k2)
+    jacobian_fn = jax.jacfwd(eval_constraint, argnums=tuple(range(num_args)))
+    jacobian = jacobian_fn(h, com_k1, com_dot_k1, foot_forces_k1, foot_forces_k2, com_k2, com_dot_k2)
 
     constraint_jac_jax_wrt_h = jacobian[0].reshape(3, -1,)
     constraint_jac_jax_wrt_com_k1 = jacobian[1]
     constraint_jac_jax_wrt_com_dot_k1 = jacobian[2]
     constraint_jac_jax_wrt_foot_forces_k1 = jacobian[3].reshape(3, -1, order='F')
-    constraint_jac_jax_wrt_com_k2 = jacobian[4]
-    constraint_jac_jax_wrt_com_dot_k2 = jacobian[5]
+    constraint_jac_jax_wrt_foot_forces_k2 = jacobian[4].reshape(3, -1, order='F')
+    constraint_jac_jax_wrt_com_k2 = jacobian[5]
+    constraint_jac_jax_wrt_com_dot_k2 = jacobian[6]
 
     constraint_jac_jax_wrt_x = jnp.hstack((constraint_jac_jax_wrt_h, 
                                            constraint_jac_jax_wrt_com_k1,
                                            constraint_jac_jax_wrt_com_dot_k1,
                                            constraint_jac_jax_wrt_foot_forces_k1,
+                                           constraint_jac_jax_wrt_foot_forces_k2,
                                            constraint_jac_jax_wrt_com_k2,
                                            constraint_jac_jax_wrt_com_dot_k2))
     return constraint_val, constraint_jac_jax_wrt_x
@@ -74,9 +83,10 @@ def com_dot_dircol_constraint_jit(
         sum_forces_kc = (sum_forces_k1 + sum_forces_k2) / 2
         # normalize ground reaction forces
         mg = -mass*gravity[2]
-        com_ddot_k1 = (1/mass)*sum_forces_k1 + gravity
-        com_ddot_k2 = (1/mass)*sum_forces_k2 + gravity
-        com_ddot_kc = (1/mass)*sum_forces_kc + gravity
+        g = -gravity[2]
+        com_ddot_k1 = g*sum_forces_k1 + gravity
+        com_ddot_k2 = g*sum_forces_k2 + gravity
+        com_ddot_kc = g*sum_forces_kc + gravity
         # direct collocation constraint formula
         rhs = (-3/(2*h))*(com_dot_k1 - com_dot_k2) - (1/4)*(com_ddot_k1 + com_ddot_k2)
         return com_ddot_kc - rhs 
@@ -84,8 +94,10 @@ def com_dot_dircol_constraint_jit(
     # Compute the value of the constraint
     constraint_val = eval_constraint(h, com_dot_k1, foot_forces_k1, com_dot_k2, foot_forces_k2)
 
+    # Determine the number of arguments dynamically (cached)
+    num_args = get_num_args(eval_constraint)
     # Compute the Jacobian using jacrev
-    jacobian_fn = jax.jacrev(eval_constraint, argnums=tuple(range(5)))
+    jacobian_fn = jax.jacrev(eval_constraint, argnums=tuple(range(num_args)))
     jacobian = jacobian_fn(h, com_dot_k1, foot_forces_k1, com_dot_k2, foot_forces_k2)
 
     constraint_jac_jax_wrt_h = jacobian[0].reshape(3, -1,)
@@ -174,9 +186,15 @@ def angvel_dircol_constraint_jit(
         """
         left_foot_forces = foot_forces[:, 0:4]
         right_foot_forces = foot_forces[:, 4:8]
+        # convert normalized foot forces to regular forces
+        left_foot_forces*= -mass*gravity[2]
+        right_foot_forces*= -mass*gravity[2]
         #print(f"foot torques shape: {foot_torques.shape}")
         left_foot_torques = foot_torques[:, 0:4]
         right_foot_torques = foot_torques[:, 4:8]
+        # convert normalized foot torques to regular torques
+        left_foot_torques*= -mass*gravity[2]
+        right_foot_torques*= -mass*gravity[2]
 
         # left foot contact positions 
         p_B_LF_contacts = _get_foot_contact_positions(
@@ -201,7 +219,6 @@ def angvel_dircol_constraint_jit(
         sum_forces = jnp.sum(r_x_F_LF + r_x_F_RF, axis=1).reshape(3, 1)
         sum_torques = jnp.sum(left_foot_torques + right_foot_torques, axis=1).reshape(3, 1)
         sum_wrench = jnp.sum(sum_forces + sum_torques, axis=1)
-        #sum_moments = jnp.sum(r_x_F_LF + r_x_F_RF + left_foot_torques + right_foot_torques, axis=1)
         # return omega dot 
         omega_dot = jnp.linalg.inv(inertia_mat)@sum_wrench
         return omega_dot
