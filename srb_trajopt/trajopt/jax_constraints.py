@@ -41,7 +41,6 @@ def com_dircol_constraint_jit(
     constraint_jac_jax_wrt_com_k1 = jacobian[1]
     constraint_jac_jax_wrt_com_dot_k1 = jacobian[2]
     constraint_jac_jax_wrt_foot_forces_k1 = jacobian[3].reshape(3, -1, order='F')
-    #print(constraint_jac_jax_wrt_foot_forces_k1.shape)
     constraint_jac_jax_wrt_com_k2 = jacobian[4]
     constraint_jac_jax_wrt_com_dot_k2 = jacobian[5]
 
@@ -74,9 +73,10 @@ def com_dot_dircol_constraint_jit(
         sum_forces_k2 = jnp.sum(foot_forces_k2, axis=1)
         sum_forces_kc = (sum_forces_k1 + sum_forces_k2) / 2
         # normalize ground reaction forces
-        com_ddot_k1 = gravity[2]*(sum_forces_k1 + jnp.array([0, 0, 1]))
-        com_ddot_k2 = gravity[2]*(sum_forces_k2 + jnp.array([0, 0, 1]))
-        com_ddot_kc = gravity[2]*(sum_forces_kc + jnp.array([0, 0, 1]))
+        mg = -mass*gravity[2]
+        com_ddot_k1 = (1/mass)*sum_forces_k1 + gravity
+        com_ddot_k2 = (1/mass)*sum_forces_k2 + gravity
+        com_ddot_kc = (1/mass)*sum_forces_kc + gravity
         # direct collocation constraint formula
         rhs = (-3/(2*h))*(com_dot_k1 - com_dot_k2) - (1/4)*(com_ddot_k1 + com_ddot_k2)
         return com_ddot_kc - rhs 
@@ -91,7 +91,6 @@ def com_dot_dircol_constraint_jit(
     constraint_jac_jax_wrt_h = jacobian[0].reshape(3, -1,)
     constraint_jac_jax_wrt_com_dot_k1 = jacobian[1]
     constraint_jac_jax_wrt_foot_forces_k1 = jacobian[2].reshape(3, -1, order='F')
-    #print(constraint_jac_jax_wrt_foot_forces_k1.shape)
     constraint_jac_jax_wrt_com_dot_k2 = jacobian[3]
     constraint_jac_jax_wrt_foot_forces_k2 = jacobian[4].reshape(3, -1, order='F')
 
@@ -111,6 +110,7 @@ def angvel_dircol_constraint_jit(
     foot_width: float,
     I_BBo_B: np.ndarray,
     mass: float,
+    gravity: np.ndarray
     ):
 
     def _get_foot_contact_positions(
@@ -226,6 +226,8 @@ def angvel_dircol_constraint_jit(
             foot_torques_k2,
             ):
         
+        # foot_forces_k1*= -mass*gravity[2]
+        # foot_forces_k2*= -mass*gravity[2]
         # compute cont. dynamics at knot point 1
         # compute cont. dynamics at collocation point
         # compute cont. dynamics at knot point 2
@@ -276,7 +278,6 @@ def angvel_dircol_constraint_jit(
             I_BBo_B,
             mass
         )
-
 
         omega_dot_kc = _compute_omega_dot(
             I_B_W_kc,
@@ -348,6 +349,6 @@ def angvel_dircol_constraint_jit(
 
     # Stack the reshaped Jacobians horizontally
     constraint_jac_jax = jnp.hstack(reshaped_jacobians)
-    # Assuming you have constraint_val defined
+    
     return constraint_val, constraint_jac_jax
 

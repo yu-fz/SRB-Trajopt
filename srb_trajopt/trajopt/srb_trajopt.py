@@ -43,7 +43,8 @@ from pydrake.autodiffutils import (
 from pydrake.solvers import (
     SnoptSolver,
     Solve,
-    ExpressionConstraint)
+    ExpressionConstraint,
+    QuadraticCost)
 
 from pydrake.symbolic import (
     Expression,
@@ -92,7 +93,7 @@ class SRBTrajopt:
         self.srb_body_idx = self.ad_plant.GetBodyIndices(self.ad_plant.GetModelInstanceByName("body"))[0]
         self.srb_body = self.ad_plant.GetBodyByName("body")
         self.meshcat = srb_builder.meshcat
-        self.body_v0 = np.array([0., 0., 0.]) # initial body velocity
+        self.body_v0 = np.array([1., 0., 0.]) # initial body velocity
         self.ad_simulator = Simulator_[AutoDiffXd](self.ad_srb_diagram, 
                                       self.ad_srb_diagram.CreateDefaultContext())
         self.ad_simulator.Initialize()
@@ -147,7 +148,6 @@ class SRBTrajopt:
         self.h = prog.NewContinuousVariables(self.N - 1, "h")
         self.com = prog.NewContinuousVariables(3, self.N, "com")
         self.com_dot = prog.NewContinuousVariables(3, self.N, "com_dot")
-        #self.com_ddot = prog.NewContinuousVariables(3, self.N-1, "com_ddot")
 
         self.body_quat = prog.NewContinuousVariables(4, self.N, "body_quat")
         self.body_angvel = prog.NewContinuousVariables(3, self.N, "body_angular_vel")
@@ -186,10 +186,9 @@ class SRBTrajopt:
         
         """
         default_com = np.array([0., 0., 1.])
-        default_com_dot = np.array([0., 0., 0.])
+        default_com_dot = np.array([1., 0., 0.])
         default_quat = np.array([1., 0., 0., 0.])
         default_angvel = np.array([0., 0., 0.])
-        default_com_ddot = np.array([0., 0., self.gravity[2]])
         default_p_W_LF = np.array([0., 0.1, -0.6])
         default_p_W_RF = np.array([0., -0.1, -0.6])
         for n in range(self.N):
@@ -203,12 +202,6 @@ class SRBTrajopt:
                 self.com_dot[:, n],
                 default_com_dot
             )
-            # if n < self.N - 1:
-            #     # set CoM acceleration guess
-            #     prog.SetInitialGuess(
-            #         self.com_ddot[:, n],
-            #         default_com_ddot
-            #     )
             # set body quaternion guess
             prog.SetInitialGuess(
                 self.body_quat[:, n],
@@ -219,16 +212,16 @@ class SRBTrajopt:
                 self.body_angvel[:, n],
                 default_angvel
             )
-            # set left foot position guess
-            prog.SetInitialGuess(
-                self.p_W_LF[:, n],
-                default_p_W_LF
-            )
-            # set right foot position guess
-            prog.SetInitialGuess(
-                self.p_W_RF[:, n],
-                default_p_W_RF
-            )
+            # # set left foot position guess
+            # prog.SetInitialGuess(
+            #     self.p_W_LF[:, n],
+            #     default_p_W_LF
+            # )
+            # # set right foot position guess
+            # prog.SetInitialGuess(
+            #     self.p_W_RF[:, n],
+            #     default_p_W_RF
+            # )
             
 
     #####################################
@@ -239,7 +232,17 @@ class SRBTrajopt:
         """
         Adds quadratic error cost on CoM postion decision variables from the reference CoM position
         """
-        pass 
+        Q = np.eye(3)
+        Q[0, 0] = 2
+        Q[1, 1] = 2
+        Q[2, 2] = 10
+        x_des = np.array([0., 0., 1.])
+        for n in range(self.N):
+            prog.AddQuadraticErrorCost(
+                Q=Q,
+                x_desired=x_des,
+                vars=self.com[:, n]
+            ) 
     
     def add_foot_position_cost(self, prog: MathematicalProgram):
         """
@@ -251,7 +254,47 @@ class SRBTrajopt:
         """
         Adds quadratic error cost on control decision variables from the reference control values
         """
-        pass
+        Q_force = np.eye(3)*10
+        Q_torque = np.eye(3)*10
+        Q_dforce_dt = np.eye(3)*10
+
+        def d_force_dt_cost(x: np.ndarray):
+            """
+            Computes the cost on the rate of change of foot forces
+            """
+            force_n, force_n_minus_1 = np.split(x, 
+                                                [3,])
+            return 0.5 * (force_n - force_n_minus_1).T @ Q_dforce_dt @ (force_n - force_n_minus_1)
+
+        for n in range(self.N - 1):
+            for i in range(8):
+                prog.AddQuadraticErrorCost(
+                    Q=Q_force,
+                    x_desired=np.zeros(3),
+                    vars=self.contact_forces[i][:, n]
+                )
+                prog.AddQuadraticErrorCost(
+                    Q=Q_torque,
+                    x_desired=np.zeros(3),
+                    vars=self.contact_torques[i][:, n]
+                )
+            # if n > 0:
+            #     for i in range(8):
+            #         d_force_dt_vars = np.concatenate(
+            #             (self.contact_forces[i][:, n], 
+            #              self.contact_forces[i][:, n-1]))
+            #         prog.AddCost(
+            #             d_force_dt_cost,
+            #             vars=d_force_dt_vars
+            #         )
+                    # d_force_dt = 0.5* d_force_dt * Q_dforce_dt * d_force_dt
+                    # print(d_force_dt)
+                    # for j in range(3):
+                    #     prog.AddQuadraticCost(
+                    #         e=d_force_dt[j][0],
+                    #         is_convex=True,
+                    #     )
+
 
     ################################## 
     # Trajopt constraint definitions #
@@ -358,7 +401,7 @@ class SRBTrajopt:
                     self.gravity)
                 return np.array(constraint_val, dtype=float).reshape(3,1)
         
-        for n in range(self.N - 2):
+        for n in range(self.N - 1):
             # Define a list of variables to concatenate
             comddot_constraint_variables = [
                 [self.h[n]],
@@ -533,7 +576,8 @@ class SRBTrajopt:
                     self.options.foot_length,
                     self.options.foot_width,
                     self.I_BBo_B,
-                    self.mass
+                    self.mass,
+                    self.gravity
                 )
 
                 constraint_val_ad = InitializeAutoDiff(value=constraint_val,
@@ -547,7 +591,8 @@ class SRBTrajopt:
                     self.options.foot_length,
                     self.options.foot_width,
                     self.I_BBo_B,
-                    self.mass
+                    self.mass,
+                    self.gravity
                 )
                 return np.array(constraint_val, dtype=float).reshape(3,1)
 
@@ -602,7 +647,6 @@ class SRBTrajopt:
         
         """
         mu = self.options.mu
-        mu = 0.9  
         max_z_grf = float(self.options.max_z_grf)
         foot_half_l = float(self.options.foot_length/2)
         foot_half_w = float(self.options.foot_width/2)
@@ -652,7 +696,7 @@ class SRBTrajopt:
             for i in range(len(self.contact_forces)):
                 prog.AddBoundingBoxConstraint(
                     0.,
-                    np.inf,
+                    self.in_stance[i, n] * self.mass * -self.gravity[2],
                     self.contact_forces[i][2, n],
                     ).evaluator().set_description("nonnegative foot z force")
 
@@ -790,25 +834,15 @@ class SRBTrajopt:
                 p_B_LF_W_i = self.p_W_LF[i, n] - self.com[i, n]
                 p_B_RF_W_i = self.p_W_RF[i, n] - self.com[i, n]
 
-                prog.AddLinearConstraint(
-                    v= [p_B_LF_W_i],
-                    lb= [-np.inf],
-                    ub= [self.options.leg_extension_bounds[i]]
+                self.add_linear_absolute_value_constraint(
+                    prog,
+                    p_B_LF_W_i,
+                    self.options.leg_extension_bounds[i]
                 )
-                prog.AddLinearConstraint(
-                    v= [-p_B_LF_W_i],
-                    lb= [-np.inf],
-                    ub= [self.options.leg_extension_bounds[i]]
-                )
-                prog.AddLinearConstraint(
-                    v= [p_B_RF_W_i],
-                    lb= [-np.inf],
-                    ub= [self.options.leg_extension_bounds[i]]
-                )
-                prog.AddLinearConstraint(
-                    v= [-p_B_RF_W_i],
-                    lb= [-np.inf],
-                    ub= [self.options.leg_extension_bounds[i]]
+                self.add_linear_absolute_value_constraint(
+                    prog,
+                    p_B_RF_W_i,
+                    self.options.leg_extension_bounds[i]
                 )
 
     def add_foot_velocity_kinematic_constraint(self, prog: MathematicalProgram):
@@ -883,14 +917,24 @@ class SRBTrajopt:
                             self.p_W_RF[2,n] == 0
                         ).evaluator().set_description(f"foot_{i}_stace_z_pos_constraint_{n}")
                 else:
-                    if i in range(4):
-                        prog.AddLinearConstraint(
-                            self.p_W_LF[2,n] >= 0.001
-                        ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
-                    elif i in range(4, 8):
-                        prog.AddLinearConstraint(
-                            self.p_W_RF[2,n] >= 0.001
-                        ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
+                    pass 
+                    # if i in range(4):
+                    #     prog.AddLinearConstraint(
+                    #         self.p_W_LF[2,n] >= 0.001
+                    #     ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
+                    # elif i in range(4, 8):
+                    #     prog.AddLinearConstraint(
+                    #         self.p_W_RF[2,n] >= 0.001
+                    #     ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
+
+    def add_minimum_com_height_constraint(self, prog: MathematicalProgram):
+        """
+        Constrains the minimum com height to be above a certain threshold
+        """
+        for n in range(self.N):
+            prog.AddLinearConstraint(
+                self.com[2, n] >= self.options.min_com_height
+            ).evaluator().set_description(f"min_com_height_constraint_{n}")
 
     def formulate_trajopt_problem(self,):
         """
@@ -899,6 +943,12 @@ class SRBTrajopt:
         prog = self.create_trajopt_program()
         self.create_contact_sequence()
         self.set_trajopt_initial_guess(prog)
+
+        ### Add Costs ###
+        self.add_com_position_cost(prog)
+        self.add_control_cost(prog)
+
+        ### Add Constraints ###
         self.add_time_scaling_constraint(prog)
         self.add_unit_quaternion_constraint(prog)
         self.add_quaternion_integration_constraint(prog)
@@ -909,6 +959,7 @@ class SRBTrajopt:
         self.add_angular_velocity_constraint(prog)
         self.add_contact_wrench_cone_constraint(prog)
         self.add_foot_velocity_kinematic_constraint(prog)
+        self.add_minimum_com_height_constraint(prog)
 
         return prog
 
@@ -969,8 +1020,10 @@ class SRBTrajopt:
             right_foot_z_frc_sum.append(contact_frc_sum)
         
         time = np.cumsum(np.hstack((0, res.GetSolution(self.h))))
-        plt.plot(time, res.GetSolution(self.com)[2, :])
+        plt.plot(time, res.GetSolution(self.com)[0, :])
         plt.show()
+        print(left_foot_z_frc_sum)
+        print(right_foot_z_frc_sum)
         plt.plot(time[:-1], left_foot_z_frc_sum)
         plt.plot(time[:-1], right_foot_z_frc_sum)
         plt.show()
@@ -983,9 +1036,9 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.ones((8, N))
-        # in_stance[0:4, 0:int(N/2)] = 1
-        # in_stance[4:8, int(N/2):N] = 1
+        in_stance = np.zeros((8, N))
+        in_stance[0:4, 0:int(N/2)] = 1
+        in_stance[4:8, int(N/2)-1:N] = 1
         self.in_stance = in_stance
 
     def render_srb(self) -> None:
