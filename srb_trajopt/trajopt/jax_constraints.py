@@ -262,7 +262,7 @@ def compute_omega_dot(
     return omega_dot
 
 
-@jax.jit 
+@jax.jit
 def angvel_dircol_constraint_jit(
     h: float,
     k1_decision_vars: dict,
@@ -296,10 +296,10 @@ def angvel_dircol_constraint_jit(
         
         # scale all foot forces and torques by mass*gravity
         mg = -mass*gravity[2]
-        # foot_forces_k1 *= mg
-        # foot_forces_k2 *= mg
-        # foot_torques_k1 *= mg
-        # foot_torques_k2 *= mg
+        foot_forces_k1 *= mg
+        foot_forces_k2 *= mg
+        foot_torques_k1 *= mg
+        foot_torques_k2 *= mg
 
         # compute cont. dynamics at knot point 1
         # compute cont. dynamics at collocation point
@@ -382,7 +382,6 @@ def angvel_dircol_constraint_jit(
         rhs = ((-3/(2*h))*(body_angvel_k1 - body_angvel_k2) - (1/4)*(omega_dot_k1 + omega_dot_k2))
         return omega_dot_kc - rhs
 
-    mg = -mass*gravity[2]
     params_list = [
         h,
         k1_decision_vars['com_k1'],
@@ -430,4 +429,3 @@ def angvel_dircol_constraint_jit(
     constraint_jac_jax = jnp.hstack(reshaped_angvel_jacobians)
     
     return constraint_val, constraint_jac_jax
-

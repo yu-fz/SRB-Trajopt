@@ -18,11 +18,11 @@ class SRBTrajoptOptions:
         # Control Limits 
 
         # max normalized Z axis grf 
-        self._max_z_grf = self._mass * 9.81 * 5
+        self._max_z_grf = self._mass * 5
         self._min_com_height = 0.6
 
         # trajopt parameters
-        self.N = 5 # number of knot points
+        self.N = 10 # number of knot points
         self.T = 2 # total time
 
     @property

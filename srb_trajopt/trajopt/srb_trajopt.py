@@ -207,30 +207,30 @@ class SRBTrajopt:
                 self.body_quat[:, n],
                 default_quat
             )
-        for n in range(self.N - 1):
-            for i in range(len(self.contact_forces)):
-                if self.in_stance[i, n]:
-                    # set foot force guess
-                    prog.SetInitialGuess(
-                        self.contact_forces[i][:, n],
-                        np.ones(3)*1/8
-                    )
-                    # set foot torque guess
-                    prog.SetInitialGuess(
-                        self.contact_torques[i][:, n],
-                        np.ones(3)*1/8
-                    )
-                else:
-                    # set foot force guess
-                    prog.SetInitialGuess(
-                        self.contact_forces[i][:, n],
-                        np.zeros(3)
-                    )
-                    # set foot torque guess
-                    prog.SetInitialGuess(
-                        self.contact_torques[i][:, n],
-                        np.zeros(3)
-                    )
+        # for n in range(self.N - 1):
+        #     for i in range(len(self.contact_forces)):
+        #         if self.in_stance[i, n]:
+        #             # set foot force guess
+        #             prog.SetInitialGuess(
+        #                 self.contact_forces[i][:, n],
+        #                 np.ones(3)*1/8
+        #             )
+        #             # set foot torque guess
+        #             prog.SetInitialGuess(
+        #                 self.contact_torques[i][:, n],
+        #                 np.ones(3)*1/8
+        #             )
+        #         else:
+        #             # set foot force guess
+        #             prog.SetInitialGuess(
+        #                 self.contact_forces[i][:, n],
+        #                 np.zeros(3)
+        #             )
+        #             # set foot torque guess
+        #             prog.SetInitialGuess(
+        #                 self.contact_torques[i][:, n],
+        #                 np.zeros(3)
+        #             )
 
             # # set body angular velocity guess
             # prog.SetInitialGuess(
@@ -279,12 +279,12 @@ class SRBTrajopt:
         """
         Adds quadratic error cost on control decision variables from the reference control values
         """
-        Q_force = np.eye(3)*10
-        Q_force[2, 2] = 100
-        Q_torque = np.eye(3)*10
-        Q_torque[2, 2] = 100
-        Q_dforce_dt = np.eye(3)*10
-        Q_dforce_dt[2, 2] = 100
+        Q_force = np.eye(3)*5
+        Q_force[2, 2] = 5
+        Q_torque = np.eye(3)*5
+        Q_torque[2, 2] = 5
+        Q_dforce_dt = np.eye(3)*5
+        Q_dforce_dt[2, 2] = 5
 
         def d_force_dt_cost(x: np.ndarray):
             """
@@ -341,10 +341,9 @@ class SRBTrajopt:
         Constrains the body quaternion decision variables to be unit quaternions
         """
         for n in range(self.N):
-            quat = self.body_quat[:, n]
             prog.AddConstraint(
                 UnitQuaternionConstraint(),
-                quat
+                self.body_quat[:, n]
             )
 
     def add_initial_position_velocity_constraint(self, prog: MathematicalProgram):
@@ -564,23 +563,6 @@ class SRBTrajopt:
             k1_decision_vars = {}
             k2_decision_vars = {}
 
-            # srb_pos_k1 = np.concatenate((quat_k1, com_k1))
-            # srb_pos_k2 = np.concatenate((quat_k2, com_k2))
-            # if not autoDiffArrayEqual(srb_pos_k1,
-            #                           self.ad_plant.GetPositions(
-            #                               ad_angular_velocity_dynamics_context[context_index])):
-            #     self.ad_plant.SetPositions(
-            #         ad_angular_velocity_dynamics_context[context_index], 
-            #         srb_pos_k1)
-            
-            # if not autoDiffArrayEqual(srb_pos_k2,
-            #                           self.ad_plant.GetPositions(
-            #                               ad_angular_velocity_dynamics_context[context_index + 1])):
-                
-            #     self.ad_plant.SetPositions(
-            #         ad_angular_velocity_dynamics_context[context_index + 1],
-            #         srb_pos_k2)
-            
             k1_decision_vars["com_k1"] = ExtractValue(com_k1).reshape(3,)
             k1_decision_vars["quat_k1"] = ExtractValue(quat_k1).reshape(4,)
             k1_decision_vars["com_dot_k1"] = ExtractValue(com_dot_k1).reshape(3,)
@@ -776,7 +758,7 @@ class SRBTrajopt:
             #     right_foot_z_frc_sum*foot_half_l
             # )
 
-            # # M_y torque constraints
+            # M_y torque constraints
             # prog.AddLinearConstraint(
             #     left_foot_m_y_sum == \
             #         left_foot_z_heel_frc_sum*foot_half_l - \
@@ -788,10 +770,10 @@ class SRBTrajopt:
             #         right_foot_z_heel_frc_sum*foot_half_l - \
             #         right_foot_z_toe_frc_sum*foot_half_l
             # )
-            # # #############################################
+            # #############################################
 
 
-            # # # M_x max torque constraints
+            # # M_x max torque constraints
             # prog.AddLinearConstraint(
             #     -left_foot_z_frc_sum*foot_half_w <= \
             #     left_foot_m_x_sum
@@ -820,9 +802,9 @@ class SRBTrajopt:
             #         right_foot_z_rhs_frc_sum*foot_half_w
             # )
 
-            # # Mz max torque constraints
+            # Mz max torque constraints
 
-            # # Friction cone constraints for left foot heel and toe contacts
+            # Friction cone constraints for left foot heel and toe contacts
             # self.add_linear_absolute_value_constraint(
             #     prog,
             #     left_foot_y_toe_frc_sum,
@@ -974,16 +956,16 @@ class SRBTrajopt:
         """
         prog = self.create_trajopt_program()
         self.create_contact_sequence()
-        #self.set_trajopt_initial_guess(prog)
+        self.set_trajopt_initial_guess(prog)
 
         ### Add Costs ###
-        self.add_com_position_cost(prog)
+        # self.add_com_position_cost(prog)
         self.add_control_cost(prog)
 
         ### Add Constraints ###
         self.add_time_scaling_constraint(prog)
         self.add_unit_quaternion_constraint(prog)
-        #self.add_quaternion_integration_constraint(prog)
+        self.add_quaternion_integration_constraint(prog)
         self.add_com_velocity_constraint(prog)
         self.add_com_position_constraint(prog)
         
@@ -1027,6 +1009,9 @@ class SRBTrajopt:
 
         snopt = SnoptSolver()
         res = snopt.Solve(prog)
+        quat = res.GetSolution(self.body_quat)
+        for i in range(self.N):
+            print(np.linalg.norm(quat[:, i]))
         print(res.is_success())
         print(res.get_solver_details().info)
         print(f"solution cost: {res.get_optimal_cost()}")
@@ -1075,9 +1060,9 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.ones((8, N))
-        # in_stance[0:4, 0:int(N/2)] = 1
-        # in_stance[4:8, int(N/2)-1:N] = 1
+        in_stance = np.zeros((8, N))
+        in_stance[0:4, 0:int(N/2)] = 1
+        in_stance[4:8, int(N/2)-1:N] = 1
         self.in_stance = in_stance
 
     def render_srb(self) -> None:
