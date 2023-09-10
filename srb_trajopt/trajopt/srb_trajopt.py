@@ -68,7 +68,7 @@ import jax.numpy as jnp
 from .jax_constraints import (
     com_dot_dircol_constraint_jit,
     com_dircol_constraint_jit,
-    angvel_dircol_constraint_jit
+    angvel_dircol_constraint_jit,
 )
 from .jax_utils import (
     np_to_jax,
@@ -93,7 +93,7 @@ class SRBTrajopt:
         self.srb_body_idx = self.ad_plant.GetBodyIndices(self.ad_plant.GetModelInstanceByName("body"))[0]
         self.srb_body = self.ad_plant.GetBodyByName("body")
         self.meshcat = srb_builder.meshcat
-        self.body_v0 = np.array([1., 0., 0.]) # initial body velocity
+        self.body_v0 = np.array([0., 0., 0.]) # initial body velocity
         self.ad_simulator = Simulator_[AutoDiffXd](self.ad_srb_diagram, 
                                       self.ad_srb_diagram.CreateDefaultContext())
         self.ad_simulator.Initialize()
@@ -186,11 +186,11 @@ class SRBTrajopt:
         
         """
         default_com = np.array([0., 0., 1.])
-        default_com_dot = np.array([1., 0., 0.])
+        default_com_dot = np.array([0., 0., 0.])
         default_quat = np.array([1., 0., 0., 0.])
-        default_angvel = np.array([0., 0., 0.])
-        default_p_W_LF = np.array([0., 0.1, -0.6])
-        default_p_W_RF = np.array([0., -0.1, -0.6])
+        #default_angvel = np.array([0., 0., 0.])
+        default_p_W_LF = np.array([0., 0.1, 0.])
+        default_p_W_RF = np.array([0., -0.1, 0.])
         for n in range(self.N):
             # set CoM position guess 
             prog.SetInitialGuess(
@@ -207,11 +207,36 @@ class SRBTrajopt:
                 self.body_quat[:, n],
                 default_quat
             )
-            # set body angular velocity guess
-            prog.SetInitialGuess(
-                self.body_angvel[:, n],
-                default_angvel
-            )
+        for n in range(self.N - 1):
+            for i in range(len(self.contact_forces)):
+                if self.in_stance[i, n]:
+                    # set foot force guess
+                    prog.SetInitialGuess(
+                        self.contact_forces[i][:, n],
+                        np.ones(3)*1/8
+                    )
+                    # set foot torque guess
+                    prog.SetInitialGuess(
+                        self.contact_torques[i][:, n],
+                        np.ones(3)*1/8
+                    )
+                else:
+                    # set foot force guess
+                    prog.SetInitialGuess(
+                        self.contact_forces[i][:, n],
+                        np.zeros(3)
+                    )
+                    # set foot torque guess
+                    prog.SetInitialGuess(
+                        self.contact_torques[i][:, n],
+                        np.zeros(3)
+                    )
+
+            # # set body angular velocity guess
+            # prog.SetInitialGuess(
+            #     self.body_angvel[:, n],
+            #     default_angvel
+            # )
             # # set left foot position guess
             # prog.SetInitialGuess(
             #     self.p_W_LF[:, n],
@@ -255,8 +280,11 @@ class SRBTrajopt:
         Adds quadratic error cost on control decision variables from the reference control values
         """
         Q_force = np.eye(3)*10
+        Q_force[2, 2] = 100
         Q_torque = np.eye(3)*10
+        Q_torque[2, 2] = 100
         Q_dforce_dt = np.eye(3)*10
+        Q_dforce_dt[2, 2] = 100
 
         def d_force_dt_cost(x: np.ndarray):
             """
@@ -319,7 +347,7 @@ class SRBTrajopt:
                 quat
             )
 
-    def add_initial_velocity_constraint(self, prog: MathematicalProgram):
+    def add_initial_position_velocity_constraint(self, prog: MathematicalProgram):
         """
         Constrains the initial CoM velocity to be zero
         """
@@ -335,22 +363,6 @@ class SRBTrajopt:
                 self.body_v0,
                 self.body_v0,
                 self.com_dot[:, n]).evaluator().set_description("com velocity constraint")
-
-
-    def add_quaternion_integration_constraint(self, prog: MathematicalProgram):
-        """
-        Add euler quaternion integration constraint to ensure that q1 rotates to q2 in dt time for a 
-        given angular velocity w assuming that the angular velocity is constant over the time interval
-        """
-        for n in range(self.N - 1):
-            quat1 = self.body_quat[:, n]
-            quat2 = self.body_quat[:, n+1]
-            angular_vel = self.body_angvel[:, n]
-            h = self.h[n]
-            # Create the constraint
-            dut = QuaternionEulerIntegrationConstraint(allow_quaternion_negation=True)
-            # Add the constraint to the program
-            prog.AddConstraint(dut, dut.ComposeVariable(quat1, quat2, angular_vel, h))
                            
     def add_com_position_constraint(self, prog: MathematicalProgram):
         """
@@ -460,6 +472,7 @@ class SRBTrajopt:
                     foot_forces_k2_val,
                     self.mass,
                     self.gravity)
+
                 constraint_val_ad = InitializeAutoDiff(value=constraint_val,
                                                        gradient=constraint_jac)
                 return constraint_val_ad
@@ -492,17 +505,32 @@ class SRBTrajopt:
                 description=f"com_velocity_constraint_{n}"
             )
 
+    def add_quaternion_integration_constraint(self, prog: MathematicalProgram):
+        """
+        Add euler quaternion integration constraint to ensure that q1 rotates to q2 in dt time for a 
+        given angular velocity w assuming that the angular velocity is constant over the time interval
+        """
+        for n in range(self.N - 1):
+            quat1 = self.body_quat[:, n]
+            quat2 = self.body_quat[:, n+1]
+            angular_vel = self.body_angvel[:, n]
+            h = self.h[n]
+            # Create the constraint
+            dut = QuaternionEulerIntegrationConstraint(allow_quaternion_negation=True)
+            # Add the constraint to the program
+            prog.AddConstraint(dut, dut.ComposeVariable(quat1, quat2, angular_vel, h))
+
     def add_angular_velocity_constraint(self, prog: MathematicalProgram):
         """
         Integrates the contact torque decision variables to constrain angular velocity decision variables
         """
 
         # Create autodiff contexts for this constraint (to maximize cache hits)
-        ad_angular_velocity_dynamics_context = [
-            self.ad_plant.CreateDefaultContext() for i in range(self.N)
-        ]
+        # ad_angular_velocity_dynamics_context = [
+        #     self.ad_plant.CreateDefaultContext() for i in range(self.N)
+        # ]
 
-        def angular_velocity_constraint(x: np.ndarray, context_index: int):
+        def angular_velocity_constraint(x: np.ndarray,):
             # Define variable names and their corresponding indices
             # Split the input array using the indices
             split_vars = np.split(x, [
@@ -530,29 +558,28 @@ class SRBTrajopt:
 
             foot_forces_k1 = foot_forces_k1.reshape((3, len(self.foot_wrench_names)), order='F')
             foot_forces_k2 = foot_forces_k1.reshape((3, len(self.foot_wrench_names)), order='F')
-
             foot_torques_k1 = foot_torques_k1.reshape((3, len(self.foot_wrench_names)), order='F')
             foot_torques_k2 = foot_torques_k2.reshape((3, len(self.foot_wrench_names)), order='F')
 
             k1_decision_vars = {}
             k2_decision_vars = {}
 
-            srb_pos_k1 = np.concatenate((quat_k1, com_k1))
-            srb_pos_k2 = np.concatenate((quat_k2, com_k2))
-            if not autoDiffArrayEqual(srb_pos_k1,
-                                      self.ad_plant.GetPositions(
-                                          ad_angular_velocity_dynamics_context[context_index])):
-                self.ad_plant.SetPositions(
-                    ad_angular_velocity_dynamics_context[context_index], 
-                    srb_pos_k1)
+            # srb_pos_k1 = np.concatenate((quat_k1, com_k1))
+            # srb_pos_k2 = np.concatenate((quat_k2, com_k2))
+            # if not autoDiffArrayEqual(srb_pos_k1,
+            #                           self.ad_plant.GetPositions(
+            #                               ad_angular_velocity_dynamics_context[context_index])):
+            #     self.ad_plant.SetPositions(
+            #         ad_angular_velocity_dynamics_context[context_index], 
+            #         srb_pos_k1)
             
-            if not autoDiffArrayEqual(srb_pos_k2,
-                                      self.ad_plant.GetPositions(
-                                          ad_angular_velocity_dynamics_context[context_index + 1])):
+            # if not autoDiffArrayEqual(srb_pos_k2,
+            #                           self.ad_plant.GetPositions(
+            #                               ad_angular_velocity_dynamics_context[context_index + 1])):
                 
-                self.ad_plant.SetPositions(
-                    ad_angular_velocity_dynamics_context[context_index + 1],
-                    srb_pos_k2)
+            #     self.ad_plant.SetPositions(
+            #         ad_angular_velocity_dynamics_context[context_index + 1],
+            #         srb_pos_k2)
             
             k1_decision_vars["com_k1"] = ExtractValue(com_k1).reshape(3,)
             k1_decision_vars["quat_k1"] = ExtractValue(quat_k1).reshape(4,)
@@ -603,7 +630,7 @@ class SRBTrajopt:
 
         for n in range(self.N - 2):
             # Define a list of variables to concatenate
-            comddot_constraint_variables = [
+            angvel_constraint_variables = [
                 [self.h[n]],
                 self.com[:, n],
                 self.body_quat[:, n],
@@ -622,14 +649,14 @@ class SRBTrajopt:
                 *[self.contact_forces[i][:, n + 1] for i in range(8)],
                 *[self.contact_torques[i][:, n + 1] for i in range(8)],]
             
-            flattened_variables = [item for sublist in comddot_constraint_variables for item in sublist]
+            flattened_variables = [item for sublist in angvel_constraint_variables for item in sublist]
 
             prog.AddConstraint(
-                partial(angular_velocity_constraint, context_index=n),
+                angular_velocity_constraint,
                 lb=[0,0,0],
                 ub=[0,0,0],
                 vars=np.array(flattened_variables),
-                description=f"com_velocity_constraint_{n}"
+                description=f"angular_velocity_constraint_{n}"
             )
 
     def add_linear_absolute_value_constraint(self, 
@@ -732,102 +759,102 @@ class SRBTrajopt:
             # foot polygon
 
             # M_y max torque constraints
-            prog.AddLinearConstraint(
-                -left_foot_z_frc_sum*foot_half_l <= \
-                left_foot_m_y_sum
-            )
-            prog.AddLinearConstraint(
-                left_foot_m_y_sum <= \
-                left_foot_z_frc_sum*foot_half_l
-            )
-            prog.AddLinearConstraint(
-                -right_foot_z_frc_sum*foot_half_l <= \
-                right_foot_m_y_sum
-            )
-            prog.AddLinearConstraint(
-                right_foot_m_y_sum <= \
-                right_foot_z_frc_sum*foot_half_l
-            )
+            # prog.AddLinearConstraint(
+            #     -left_foot_z_frc_sum*foot_half_l <= \
+            #     left_foot_m_y_sum
+            # )
+            # prog.AddLinearConstraint(
+            #     left_foot_m_y_sum <= \
+            #     left_foot_z_frc_sum*foot_half_l
+            # )
+            # prog.AddLinearConstraint(
+            #     -right_foot_z_frc_sum*foot_half_l <= \
+            #     right_foot_m_y_sum
+            # )
+            # prog.AddLinearConstraint(
+            #     right_foot_m_y_sum <= \
+            #     right_foot_z_frc_sum*foot_half_l
+            # )
 
-            # M_y torque constraints
-            prog.AddLinearConstraint(
-                left_foot_m_y_sum == \
-                    left_foot_z_heel_frc_sum*foot_half_l - \
-                    left_foot_z_toe_frc_sum*foot_half_l
-            )
+            # # M_y torque constraints
+            # prog.AddLinearConstraint(
+            #     left_foot_m_y_sum == \
+            #         left_foot_z_heel_frc_sum*foot_half_l - \
+            #         left_foot_z_toe_frc_sum*foot_half_l
+            # )
 
-            prog.AddLinearConstraint(
-                right_foot_m_y_sum == \
-                    right_foot_z_heel_frc_sum*foot_half_l - \
-                    right_foot_z_toe_frc_sum*foot_half_l
-            )
-            #############################################
+            # prog.AddLinearConstraint(
+            #     right_foot_m_y_sum == \
+            #         right_foot_z_heel_frc_sum*foot_half_l - \
+            #         right_foot_z_toe_frc_sum*foot_half_l
+            # )
+            # # #############################################
 
 
-            # M_x max torque constraints
-            prog.AddLinearConstraint(
-                -left_foot_z_frc_sum*foot_half_w <= \
-                left_foot_m_x_sum
-            )
-            prog.AddLinearConstraint(
-                left_foot_m_x_sum <= \
-                left_foot_z_frc_sum*foot_half_w
-            )
-            prog.AddLinearConstraint(
-                -right_foot_z_frc_sum*foot_half_w <= \
-                right_foot_m_x_sum
-            )
-            prog.AddLinearConstraint(
-                right_foot_m_x_sum <= \
-                right_foot_z_frc_sum*foot_half_w
-            )
+            # # # M_x max torque constraints
+            # prog.AddLinearConstraint(
+            #     -left_foot_z_frc_sum*foot_half_w <= \
+            #     left_foot_m_x_sum
+            # )
+            # prog.AddLinearConstraint(
+            #     left_foot_m_x_sum <= \
+            #     left_foot_z_frc_sum*foot_half_w
+            # )
+            # prog.AddLinearConstraint(
+            #     -right_foot_z_frc_sum*foot_half_w <= \
+            #     right_foot_m_x_sum
+            # )
+            # prog.AddLinearConstraint(
+            #     right_foot_m_x_sum <= \
+            #     right_foot_z_frc_sum*foot_half_w
+            # )
 
-            prog.AddLinearConstraint(
-                left_foot_m_x_sum == \
-                    left_foot_z_lhs_frc_sum*foot_half_w - \
-                    left_foot_z_rhs_frc_sum*foot_half_w
-            )
-            prog.AddLinearConstraint(
-                right_foot_m_x_sum == \
-                    right_foot_z_lhs_frc_sum*foot_half_w - \
-                    right_foot_z_rhs_frc_sum*foot_half_w
-            )
+            # prog.AddLinearConstraint(
+            #     left_foot_m_x_sum == \
+            #         left_foot_z_lhs_frc_sum*foot_half_w - \
+            #         left_foot_z_rhs_frc_sum*foot_half_w
+            # )
+            # prog.AddLinearConstraint(
+            #     right_foot_m_x_sum == \
+            #         right_foot_z_lhs_frc_sum*foot_half_w - \
+            #         right_foot_z_rhs_frc_sum*foot_half_w
+            # )
 
-            # Mz max torque constraints
+            # # Mz max torque constraints
 
-            # Friction cone constraints for left foot heel and toe contacts
-            self.add_linear_absolute_value_constraint(
-                prog,
-                left_foot_y_toe_frc_sum,
-                mu*left_foot_z_toe_frc_sum
-            )
-            self.add_linear_absolute_value_constraint(
-                prog,
-                left_foot_y_heel_frc_sum,
-                mu*left_foot_z_heel_frc_sum
-            )
-            self.add_linear_absolute_value_constraint(
-                prog,
-                right_foot_y_toe_frc_sum,
-                mu*right_foot_z_toe_frc_sum
-            )
-            self.add_linear_absolute_value_constraint(
-                prog,
-                right_foot_y_heel_frc_sum,
-                mu*right_foot_z_heel_frc_sum
-            )
+            # # Friction cone constraints for left foot heel and toe contacts
+            # self.add_linear_absolute_value_constraint(
+            #     prog,
+            #     left_foot_y_toe_frc_sum,
+            #     mu*left_foot_z_toe_frc_sum
+            # )
+            # self.add_linear_absolute_value_constraint(
+            #     prog,
+            #     left_foot_y_heel_frc_sum,
+            #     mu*left_foot_z_heel_frc_sum
+            # )
+            # self.add_linear_absolute_value_constraint(
+            #     prog,
+            #     right_foot_y_toe_frc_sum,
+            #     mu*right_foot_z_toe_frc_sum
+            # )
+            # self.add_linear_absolute_value_constraint(
+            #     prog,
+            #     right_foot_y_heel_frc_sum,
+            #     mu*right_foot_z_heel_frc_sum
+            # )
 
-            prog.AddLinearConstraint(
-                left_foot_m_z_sum == \
-                    left_foot_y_toe_frc_sum*foot_half_l - \
-                    left_foot_y_heel_frc_sum*foot_half_l
-            )
+            # prog.AddLinearConstraint(
+            #     left_foot_m_z_sum == \
+            #         left_foot_y_toe_frc_sum*foot_half_l - \
+            #         left_foot_y_heel_frc_sum*foot_half_l
+            # )
 
-            prog.AddLinearConstraint(
-                right_foot_m_z_sum == \
-                    right_foot_y_toe_frc_sum*foot_half_l - \
-                    right_foot_y_heel_frc_sum*foot_half_l
-            )
+            # prog.AddLinearConstraint(
+            #     right_foot_m_z_sum == \
+            #         right_foot_y_toe_frc_sum*foot_half_l - \
+            #         right_foot_y_heel_frc_sum*foot_half_l
+            # )
 
     def add_step_length_kinematic_constraint(self, prog: MathematicalProgram):
         """
@@ -947,7 +974,7 @@ class SRBTrajopt:
         """
         prog = self.create_trajopt_program()
         self.create_contact_sequence()
-        self.set_trajopt_initial_guess(prog)
+        #self.set_trajopt_initial_guess(prog)
 
         ### Add Costs ###
         self.add_com_position_cost(prog)
@@ -956,11 +983,11 @@ class SRBTrajopt:
         ### Add Constraints ###
         self.add_time_scaling_constraint(prog)
         self.add_unit_quaternion_constraint(prog)
-        self.add_quaternion_integration_constraint(prog)
+        #self.add_quaternion_integration_constraint(prog)
         self.add_com_velocity_constraint(prog)
         self.add_com_position_constraint(prog)
         
-        #self.add_initial_velocity_constraint(prog)
+        self.add_initial_position_velocity_constraint(prog)
         self.add_step_length_kinematic_constraint(prog)
         self.add_angular_velocity_constraint(prog)
         self.add_contact_wrench_cone_constraint(prog)
@@ -990,13 +1017,19 @@ class SRBTrajopt:
         Solve the completed optimization problem with all constraints and costs defined
         """
         prog = self.formulate_trajopt_problem()
+        # scale contact force/torque decision variables
+        mg = -self.mass*self.gravity[2]
+        for i in range(len(self.contact_forces)):
+            for j in range(3):
+                for k in range(len(self.contact_forces[i][j])):
+                    prog.SetVariableScaling(self.contact_forces[i][j, k], 1/mg)
+                    prog.SetVariableScaling(self.contact_torques[i][j, k], 1/mg)
+
         snopt = SnoptSolver()
         res = snopt.Solve(prog)
-        print(res.is_success())  # We expect this to be false if iterations are limited.
+        print(res.is_success())
         print(res.get_solver_details().info)
         print(f"solution cost: {res.get_optimal_cost()}")
-        # solve again with collision constraints
-        # set initial guess
         if not res.is_success():
             constraints = res.GetInfeasibleConstraintNames(prog,)
             print("Infeasible constraints:")
@@ -1026,7 +1059,7 @@ class SRBTrajopt:
             right_foot_z_frc_sum.append(contact_frc_sum)
         
         time = np.cumsum(np.hstack((0, res.GetSolution(self.h))))
-        plt.plot(time, res.GetSolution(self.com)[0, :])
+        plt.plot(time, res.GetSolution(self.com)[2, :])
         plt.show()
         print(left_foot_z_frc_sum)
         print(right_foot_z_frc_sum)
@@ -1043,8 +1076,8 @@ class SRBTrajopt:
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
         in_stance = np.ones((8, N))
-        in_stance[0:4, 0:int(N/2)] = 1
-        in_stance[4:8, int(N/2)-1:N] = 1
+        # in_stance[0:4, 0:int(N/2)] = 1
+        # in_stance[4:8, int(N/2)-1:N] = 1
         self.in_stance = in_stance
 
     def render_srb(self) -> None:

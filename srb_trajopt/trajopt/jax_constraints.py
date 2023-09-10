@@ -4,6 +4,47 @@ import numpy as np
 from .jax_utils import *
 
 jax.config.update('jax_platform_name', 'cpu')
+
+
+# @jax.jit
+# def quaternion_integration_constraint_jit(
+#     h: float,
+#     quat_k1: np.ndarray,
+#     body_angvel_k1: np.ndarray,
+#     quat_k2: np.ndarray,
+#     body_angvel_k2: np.ndarray):
+    
+#     def eval_constraint(
+#         h,
+#         quat_k1,
+#         body_angvel_k1,
+#         quat_k2,
+#         body_angvel_k2
+#         ):
+#             quat_dot_k1 = calc_quaternion_derivative(quat_k1, body_angvel_k1)
+#             quat_dot_k2 = calc_quaternion_derivative(quat_k2, body_angvel_k2)
+#             quat_dot_kc
+#     constraint_val = eval_constraint(h, quat_k1, body_angvel_k1, quat_k2, body_angvel_k2)
+#     num_args = get_num_args(eval_constraint)
+#     jacobian_fn = jax.jacfwd(eval_constraint, argnums=tuple(range(num_args)))
+
+#     jacobian = jacobian_fn(h, quat_k1, body_angvel_k1, quat_k2, body_angvel_k2)
+
+#     constraint_jac_jax_wrt_h = jacobian[0].reshape(3, -1,)
+#     constraint_jac_jax_wrt_quat_k1 = jacobian[1]
+#     constraint_jac_jax_wrt_body_angvel_k1 = jacobian[2]
+#     constraint_jac_jax_wrt_quat_k2 = jacobian[3]
+#     constraint_jac_jax_wrt_body_angvel_k2 = jacobian[4]
+
+
+#     constraint_jac_jax_wrt_x = jnp.hstack((constraint_jac_jax_wrt_h,
+#                                            constraint_jac_jax_wrt_quat_k1,
+#                                            constraint_jac_jax_wrt_body_angvel_k1,
+#                                            constraint_jac_jax_wrt_quat_k2,
+#                                            constraint_jac_jax_wrt_body_angvel_k2))
+    
+#     return constraint_val, constraint_jac_jax_wrt_x
+
 @jax.jit
 def com_dircol_constraint_jit(
     h: float,
@@ -16,6 +57,10 @@ def com_dircol_constraint_jit(
     mass: float, 
     gravity: np.ndarray):
 
+    mg = -mass*gravity[2]
+    foot_forces_k1 *= mg
+    foot_forces_k2 *= mg
+
     def eval_constraint(
             h : float,
             com_k1 : np.ndarray, 
@@ -24,14 +69,14 @@ def com_dircol_constraint_jit(
             foot_forces_k2 : np.ndarray,
             com_k2 : np.ndarray,  
             com_dot_k2 : np.ndarray):
-        g = -gravity[2]
+
         sum_forces_k1 = jnp.sum(foot_forces_k1, axis=1)
         sum_forces_k2 = jnp.sum(foot_forces_k2, axis=1)
-        com_ddot_k1 = g*(sum_forces_k1 / mass) + gravity
-        com_ddot_k2 = g*(sum_forces_k1 / mass) + gravity
+        com_ddot_k1 = (1/mass)*(sum_forces_k1) + gravity
+        com_ddot_k2 = (1/mass)*(sum_forces_k2) + gravity
         com_dot_kc = 0.5*(com_dot_k1 + com_dot_k2) + (h/8)*(com_ddot_k1 - com_ddot_k2)#com_dot_k1 + (h/2)*com_ddot_k1
         # direct collocation constraint formula
-        rhs = (-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2)
+        rhs = ((-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2))
         return com_dot_kc - rhs 
 
     # Compute the value of the constraint
@@ -70,6 +115,10 @@ def com_dot_dircol_constraint_jit(
     foot_forces_k2: np.ndarray,
     mass: float,
     gravity: np.ndarray):
+    
+    mg = -mass*gravity[2]
+    foot_forces_k1 *= mg
+    foot_forces_k2 *= mg
 
     def eval_constraint(
             h,
@@ -80,15 +129,16 @@ def com_dot_dircol_constraint_jit(
         
         sum_forces_k1 = jnp.sum(foot_forces_k1, axis=1)
         sum_forces_k2 = jnp.sum(foot_forces_k2, axis=1)
+        # average sum forces k1 and k2
+        #sum_forces_kc = jnp.mean(jnp.array([sum_forces_k1, sum_forces_k2]), axis=0)
         sum_forces_kc = (sum_forces_k1 + sum_forces_k2) / 2
         # normalize ground reaction forces
-        mg = -mass*gravity[2]
         g = -gravity[2]
-        com_ddot_k1 = g*sum_forces_k1 + gravity
-        com_ddot_k2 = g*sum_forces_k2 + gravity
-        com_ddot_kc = g*sum_forces_kc + gravity
+        com_ddot_k1 = (1/mass)*sum_forces_k1 + gravity
+        com_ddot_k2 = (1/mass)*sum_forces_k2 + gravity
+        com_ddot_kc = (1/mass)*sum_forces_kc + gravity
         # direct collocation constraint formula
-        rhs = (-3/(2*h))*(com_dot_k1 - com_dot_k2) - (1/4)*(com_ddot_k1 + com_ddot_k2)
+        rhs = ((-3/(2*h))*(com_dot_k1 - com_dot_k2) - (0.25)*(com_ddot_k1 + com_ddot_k2))
         return com_ddot_kc - rhs 
 
     # Compute the value of the constraint
@@ -107,11 +157,110 @@ def com_dot_dircol_constraint_jit(
     constraint_jac_jax_wrt_foot_forces_k2 = jacobian[4].reshape(3, -1, order='F')
 
     constraint_jac_jax_wrt_x = jnp.hstack((constraint_jac_jax_wrt_h, 
-                                               constraint_jac_jax_wrt_com_dot_k1,
-                                               constraint_jac_jax_wrt_foot_forces_k1,
-                                               constraint_jac_jax_wrt_com_dot_k2,
-                                               constraint_jac_jax_wrt_foot_forces_k2,))
+                                           constraint_jac_jax_wrt_com_dot_k1,
+                                           constraint_jac_jax_wrt_foot_forces_k1,
+                                           constraint_jac_jax_wrt_com_dot_k2,
+                                           constraint_jac_jax_wrt_foot_forces_k2,))
+    
     return constraint_val, constraint_jac_jax_wrt_x
+
+
+@jax.jit
+def get_foot_contact_positions(
+    srb_yaw_rotation_mat,
+    p_W_com,
+    p_W_F,
+    foot_length,
+    foot_width
+):
+    """
+    Computes the positions of the four contact points 
+    of the left and right foot from the foot conctact location,
+    and rotates the positions of the contact points to the body yaw angle d
+
+    p_B_F_W: 3x1 array of the foot contact location measured from the body frame expressed in the world frame
+    
+    Returns:
+        rotated_foot_contact_positions: 3x4 array of the rotated foot contact positions
+    """
+    p_B_F_W = p_W_F - p_W_com
+
+    p_b_f_w_c1 = jnp.array([
+        p_B_F_W[0] + foot_length/2,
+        p_B_F_W[1] + foot_width/2,
+        p_B_F_W[2]
+    ]).reshape(3, 1)
+
+    p_b_f_w_c2 = jnp.array([
+        p_B_F_W[0] + foot_length/2,
+        p_B_F_W[1] - foot_width/2,
+        p_B_F_W[2]
+    ]).reshape(3, 1)
+
+    p_b_f_w_c3 = jnp.array([
+        p_B_F_W[0] - foot_length/2,
+        p_B_F_W[1] + foot_width/2,
+        p_B_F_W[2]
+    ]).reshape(3, 1)
+
+    p_b_f_w_c4 = jnp.array([
+        p_B_F_W[0] - foot_length/2,
+        p_B_F_W[1] - foot_width/2,
+        p_B_F_W[2]
+    ]).reshape(3, 1)
+    foot_contact_positions = jnp.hstack((p_b_f_w_c1, p_b_f_w_c2, p_b_f_w_c3, p_b_f_w_c4))
+    rotated_foot_contact_positions = jnp.matmul(srb_yaw_rotation_mat, foot_contact_positions)
+    return rotated_foot_contact_positions
+
+@jax.jit
+def compute_omega_dot(
+    inertia_mat,
+    srb_yaw_rotation_mat,
+    p_W_com,
+    p_W_LF,
+    p_W_RF,
+    foot_forces,
+    foot_torques,
+    foot_length,
+    foot_width,
+):
+    """
+    computes body angular velocity dynamics omega_dot = f(x,u)
+    as omega_dot = I^{-1}*(r_ixF_i + m_i)
+    """
+    left_foot_forces = foot_forces[:, 0:4]
+    right_foot_forces = foot_forces[:, 4:8]
+
+    left_foot_torques = foot_torques[:, 0:4]
+    right_foot_torques = foot_torques[:, 4:8]
+
+    # left foot contact positions 
+    p_B_LF_contacts = get_foot_contact_positions(
+        srb_yaw_rotation_mat,
+        p_W_com,
+        p_W_LF,
+        foot_length,
+        foot_width
+    )
+    # right foot contact positions
+    p_B_RF_contacts = get_foot_contact_positions(
+        srb_yaw_rotation_mat,
+        p_W_com,
+        p_W_RF,
+        foot_length,
+        foot_width
+    )
+
+    # compute r x F for left and right foot
+    r_x_F_LF = jnp.cross(p_B_LF_contacts, left_foot_forces, axis=0)
+    r_x_F_RF = jnp.cross(p_B_RF_contacts, right_foot_forces, axis=0)
+    sum_forces = jnp.sum(r_x_F_LF + r_x_F_RF, axis=1).reshape(3, 1)
+    sum_torques = jnp.sum(left_foot_torques + right_foot_torques, axis=1).reshape(3, 1)
+    sum_wrench = jnp.sum(sum_forces + sum_torques, axis=1)
+    # return omega dot 
+    omega_dot = jnp.linalg.inv(inertia_mat)@sum_wrench
+    return omega_dot
+
 
 @jax.jit 
 def angvel_dircol_constraint_jit(
@@ -125,105 +274,7 @@ def angvel_dircol_constraint_jit(
     gravity: np.ndarray
     ):
 
-    def _get_foot_contact_positions(
-        srb_yaw_rotation_mat,
-        p_W_com,
-        p_W_F,
-        foot_length,
-        foot_width
-    ):
-        """
-        Computes the positions of the four contact points 
-        of the left and right foot from the foot conctact location,
-        and rotates the positions of the contact points to the body yaw angle d
-
-        p_B_F_W: 3x1 array of the foot contact location measured from the body frame expressed in the world frame
-        
-        Returns:
-            rotated_foot_contact_positions: 3x4 array of the rotated foot contact positions
-        """
-        p_B_F_W = p_W_F - p_W_com
-
-        p_b_f_w_c1 = jnp.array([
-            p_B_F_W[0] + foot_length/2,
-            p_B_F_W[1] + foot_width/2,
-            p_B_F_W[2]
-        ]).reshape(3, 1)
-
-        p_b_f_w_c2 = jnp.array([
-            p_B_F_W[0] + foot_length/2,
-            p_B_F_W[1] - foot_width/2,
-            p_B_F_W[2]
-        ]).reshape(3, 1)
-
-        p_b_f_w_c3 = jnp.array([
-            p_B_F_W[0] - foot_length/2,
-            p_B_F_W[1] + foot_width/2,
-            p_B_F_W[2]
-        ]).reshape(3, 1)
-
-        p_b_f_w_c4 = jnp.array([
-            p_B_F_W[0] - foot_length/2,
-            p_B_F_W[1] - foot_width/2,
-            p_B_F_W[2]
-        ]).reshape(3, 1)
-        foot_contact_positions = jnp.hstack((p_b_f_w_c1, p_b_f_w_c2, p_b_f_w_c3, p_b_f_w_c4))
-        rotated_foot_contact_positions = jnp.matmul(srb_yaw_rotation_mat, foot_contact_positions)
-        return rotated_foot_contact_positions
-
-    def _compute_omega_dot(
-        inertia_mat,
-        srb_yaw_rotation_mat,
-        p_W_com,
-        p_W_LF,
-        p_W_RF,
-        foot_forces,
-        foot_torques,
-    ):
-        """
-        computes body angular velocity dynamics omega_dot = f(x,u)
-        as omega_dot = I^{-1}*(r_ixF_i + m_i)
-        """
-        left_foot_forces = foot_forces[:, 0:4]
-        right_foot_forces = foot_forces[:, 4:8]
-        # convert normalized foot forces to regular forces
-        left_foot_forces*= -mass*gravity[2]
-        right_foot_forces*= -mass*gravity[2]
-        #print(f"foot torques shape: {foot_torques.shape}")
-        left_foot_torques = foot_torques[:, 0:4]
-        right_foot_torques = foot_torques[:, 4:8]
-        # convert normalized foot torques to regular torques
-        left_foot_torques*= -mass*gravity[2]
-        right_foot_torques*= -mass*gravity[2]
-
-        # left foot contact positions 
-        p_B_LF_contacts = _get_foot_contact_positions(
-            srb_yaw_rotation_mat,
-            p_W_com,
-            p_W_LF,
-            foot_length,
-            foot_width
-        )
-        # right foot contact positions
-        p_B_RF_contacts = _get_foot_contact_positions(
-            srb_yaw_rotation_mat,
-            p_W_com,
-            p_W_RF,
-            foot_length,
-            foot_width
-        )
-
-        # compute r x F for left and right foot
-        r_x_F_LF = jnp.cross(p_B_LF_contacts, left_foot_forces, axis=0)
-        r_x_F_RF = jnp.cross(p_B_RF_contacts, right_foot_forces, axis=0)
-        sum_forces = jnp.sum(r_x_F_LF + r_x_F_RF, axis=1).reshape(3, 1)
-        sum_torques = jnp.sum(left_foot_torques + right_foot_torques, axis=1).reshape(3, 1)
-        sum_wrench = jnp.sum(sum_forces + sum_torques, axis=1)
-        # return omega dot 
-        omega_dot = jnp.linalg.inv(inertia_mat)@sum_wrench
-        return omega_dot
-
-    def eval_constraint(
+    def eval_angvel_constraint(
             h,
             com_k1,
             quat_k1,
@@ -243,8 +294,13 @@ def angvel_dircol_constraint_jit(
             foot_torques_k2,
             ):
         
-        # foot_forces_k1*= -mass*gravity[2]
-        # foot_forces_k2*= -mass*gravity[2]
+        # scale all foot forces and torques by mass*gravity
+        mg = -mass*gravity[2]
+        # foot_forces_k1 *= mg
+        # foot_forces_k2 *= mg
+        # foot_torques_k1 *= mg
+        # foot_torques_k2 *= mg
+
         # compute cont. dynamics at knot point 1
         # compute cont. dynamics at collocation point
         # compute cont. dynamics at knot point 2
@@ -265,7 +321,7 @@ def angvel_dircol_constraint_jit(
             mass
         )
 
-        omega_dot_k1 = _compute_omega_dot(
+        omega_dot_k1 = compute_omega_dot(
             I_B_W_k1,
             srb_yaw_rotation_mat_k1,
             com_k1,
@@ -273,6 +329,8 @@ def angvel_dircol_constraint_jit(
             p_W_RF_k1,
             foot_forces_k1,
             foot_torques_k1,
+            foot_length,
+            foot_width,
         )
 
         foot_forces_kc = jnp.array([foot_forces_k1, foot_forces_k2]).mean(axis=0)
@@ -296,7 +354,7 @@ def angvel_dircol_constraint_jit(
             mass
         )
 
-        omega_dot_kc = _compute_omega_dot(
+        omega_dot_kc = compute_omega_dot(
             I_B_W_kc,
             srb_yaw_rotation_mat_k1,
             com_kc,
@@ -304,9 +362,11 @@ def angvel_dircol_constraint_jit(
             p_W_RF_kc,
             foot_forces_kc,
             foot_torques_kc,
+            foot_length,
+            foot_width,
         )
 
-        omega_dot_k2 = _compute_omega_dot(
+        omega_dot_k2 = compute_omega_dot(
             I_B_W_k2,
             srb_yaw_rotation_mat_k1,
             com_k2,
@@ -314,12 +374,15 @@ def angvel_dircol_constraint_jit(
             p_W_RF_k2,
             foot_forces_k2,
             foot_torques_k2,
+            foot_length,
+            foot_width,
         )
 
         # direct collocation constraint formula
-        rhs = (-3/(2*h))*(body_angvel_k1 - body_angvel_k2) - (1/4)*(omega_dot_k1 + omega_dot_k2)
+        rhs = ((-3/(2*h))*(body_angvel_k1 - body_angvel_k2) - (1/4)*(omega_dot_k1 + omega_dot_k2))
         return omega_dot_kc - rhs
 
+    mg = -mass*gravity[2]
     params_list = [
         h,
         k1_decision_vars['com_k1'],
@@ -341,14 +404,14 @@ def angvel_dircol_constraint_jit(
     ]
 
     # Compute the value of the constraint
-    constraint_val = eval_constraint(
+    constraint_val = eval_angvel_constraint(
         *params_list
-    ) 
+    )
 
     # Compute the Jacobian using jacrev for wide matrices
-    jacobian_fn = jax.jacrev(eval_constraint, argnums=tuple(range(len(params_list))))
+    angvel_jacobian_fn = jax.jacrev(eval_angvel_constraint, argnums=tuple(range(len(params_list))))
     #jacobian_fn = jax.jacrev(eval_constraint, argnums=(0,1))
-    jacobian = jacobian_fn(
+    angvel_jacobian = angvel_jacobian_fn(
         *params_list
     )
 
@@ -362,10 +425,9 @@ def angvel_dircol_constraint_jit(
             return jac
 
     # Use vmap to reshape all Jacobians in the tuple
-    reshaped_jacobians = tuple(map(reshape_jacobian, jacobian))
-
+    reshaped_angvel_jacobians = tuple(map(reshape_jacobian, angvel_jacobian))
     # Stack the reshaped Jacobians horizontally
-    constraint_jac_jax = jnp.hstack(reshaped_jacobians)
+    constraint_jac_jax = jnp.hstack(reshaped_angvel_jacobians)
     
     return constraint_val, constraint_jac_jax
 
