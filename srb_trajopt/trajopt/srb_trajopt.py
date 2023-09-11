@@ -389,7 +389,27 @@ class SRBTrajopt:
             ])
             foot_forces_k1 = foot_forces_k1.reshape((3, 8), order='F')
             foot_forces_k2 = foot_forces_k2.reshape((3, 8), order='F')
+
+            sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+            sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+            com_ddot_k1 = (1/self.mass)*(sum_forces_k1) + self.gravity
+            com_ddot_k2 = (1/self.mass)*(sum_forces_k2) + self.gravity
+            com_dot_kc = 0.5*(com_dot_k1 + com_dot_k2) + (h/8)*(com_ddot_k1 - com_ddot_k2)#com_dot_k1 + (h/2)*com_ddot_k1
+            # direct collocation constraint formula
+            rhs = ((-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2))
+            return com_dot_kc - rhs 
+
             if isinstance(x[0], AutoDiffXd):
+
+                sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+                sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+                com_ddot_k1 = (1/self.mass)*(sum_forces_k1) + self.gravity
+                com_ddot_k2 = (1/self.mass)*(sum_forces_k2) + self.gravity
+                com_dot_kc = 0.5*(com_dot_k1 + com_dot_k2) + (h/8)*(com_ddot_k1 - com_ddot_k2)#com_dot_k1 + (h/2)*com_ddot_k1
+                # direct collocation constraint formula
+                rhs = ((-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2))
+                return com_dot_kc - rhs 
+
                 com_k1_val = ExtractValue(com_k1).reshape(3,)
                 com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
                 foot_forces_k1_val = ExtractValue(foot_forces_k1)
@@ -464,7 +484,38 @@ class SRBTrajopt:
             foot_forces_k1 = foot_forces_k1.reshape((3, 8), order='F')
             foot_forces_k2 = foot_forces_k2.reshape((3, 8), order='F')
             # Check if the first element of x is an AutoDiffXd object
+
+            sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+            sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+            # average sum forces k1 and k2
+            #sum_forces_kc = jnp.mean(jnp.array([sum_forces_k1, sum_forces_k2]), axis=0)
+            sum_forces_kc = (sum_forces_k1 + sum_forces_k2) / 2
+            # normalize ground reaction forces
+            g = -self.gravity[2]
+            com_ddot_k1 = (1/self.mass)*sum_forces_k1 + self.gravity
+            com_ddot_k2 = (1/self.mass)*sum_forces_k2 + self.gravity
+            com_ddot_kc = (1/self.mass)*sum_forces_kc + self.gravity
+            # direct collocation constraint formula
+            rhs = ((-3/(2*h))*(com_dot_k1 - com_dot_k2) - (0.25)*(com_ddot_k1 + com_ddot_k2))
+            return com_ddot_kc - rhs 
+
+
             if isinstance(x[0], AutoDiffXd):
+                sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+                sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+                # average sum forces k1 and k2
+                #sum_forces_kc = jnp.mean(jnp.array([sum_forces_k1, sum_forces_k2]), axis=0)
+                sum_forces_kc = (sum_forces_k1 + sum_forces_k2) / 2
+                # normalize ground reaction forces
+                g = -self.gravity[2]
+                com_ddot_k1 = (1/self.mass)*sum_forces_k1 + self.gravity
+                com_ddot_k2 = (1/self.mass)*sum_forces_k2 + self.gravity
+                com_ddot_kc = (1/self.mass)*sum_forces_kc + self.gravity
+                # direct collocation constraint formula
+                rhs = ((-3/(2*h))*(com_dot_k1 - com_dot_k2) - (0.25)*(com_ddot_k1 + com_ddot_k2))
+                return com_ddot_kc - rhs 
+
+
                 com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
                 foot_forces_k1_val = ExtractValue(foot_forces_k1)
                 com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
@@ -980,9 +1031,9 @@ class SRBTrajopt:
         
         self.add_initial_position_velocity_constraint(prog)
         self.add_step_length_kinematic_constraint(prog)
-        self.add_angular_velocity_constraint(prog)
-        #self.add_contact_wrench_cone_constraint(prog)
-        self.add_foot_velocity_kinematic_constraint(prog)
+        # # self.add_angular_velocity_constraint(prog)
+        self.add_contact_wrench_cone_constraint(prog)
+        # self.add_foot_velocity_kinematic_constraint(prog)
         self.add_minimum_com_height_constraint(prog)
 
         return prog
@@ -1013,14 +1064,12 @@ class SRBTrajopt:
         for i in range(len(self.contact_forces)):
             for j in range(3):
                 for k in range(len(self.contact_forces[i][j])):
-                    prog.SetVariableScaling(self.contact_forces[i][j, k], 1/mg)
-                    #prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
+                    prog.SetVariableScaling(self.contact_forces[i][j, k], mg)
+                    prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
 
         snopt = SnoptSolver()
         res = snopt.Solve(prog)
         quat = res.GetSolution(self.body_quat)
-        for i in range(self.N):
-            print(np.linalg.norm(quat[:, i]))
         print(res.is_success())
         print(res.get_solver_details().info)
         print(f"solution cost: {res.get_optimal_cost()}")

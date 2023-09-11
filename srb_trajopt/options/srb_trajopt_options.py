@@ -18,7 +18,7 @@ class SRBTrajoptOptions:
         # Control Limits 
 
         # max normalized Z axis grf 
-        self._max_z_grf = 2
+        self._max_z_grf = 2000
         self._min_com_height = 0.6
 
         # trajopt parameters
