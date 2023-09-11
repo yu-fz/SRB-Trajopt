@@ -958,48 +958,51 @@ class SRBTrajopt:
 
         for n in range(1, self.N):
             for i in range(len(self.contact_forces)):
-                if self.in_stance[i, n - 1]:
+                if self.in_stance[i, n]:
                     if i in range(4):
-                        constraint_args = np.concatenate([
-                            self.p_W_LF[:, n],
-                            self.p_W_LF[:, n-1],
-                            ])
-                        prog.AddConstraint(
-                            partial(foot_velocity_constraint, i = i),
-                            lb=[0., 0., 0.],
-                            ub=[0., 0., 0.],
-                            vars=constraint_args,
-                            description=f"foot_{i}_velocity_constraint_{n}"
-                        )
                         prog.AddLinearConstraint(
                             self.p_W_LF[2,n] == 0
                         ).evaluator().set_description(f"foot_{i}_stance_z_pos_constraint_{n}")
 
+                        if n > 0 and self.in_stance[i, n-1]:
+                            # feet should not move during stance 
+                            constraint_args = np.concatenate([
+                                self.p_W_LF[:, n],
+                                self.p_W_LF[:, n-1],
+                                ])
+                            prog.AddConstraint(
+                                partial(foot_velocity_constraint, i = i),
+                                lb=[0., 0., 0.],
+                                ub=[0., 0., 0.],
+                                vars=constraint_args,
+                                description=f"foot_{i}_velocity_constraint_{n}"
+                            )
                     elif i in range(4, 8):
-                        constraint_args = np.concatenate([
-                            self.p_W_RF[:, n],
-                            self.p_W_RF[:, n-1],
-                            ])
-                        prog.AddConstraint(
-                            partial(foot_velocity_constraint, i = i),
-                            lb=[0., 0., 0.],
-                            ub=[0., 0., 0.],
-                            vars=constraint_args,
-                            description=f"foot_{i}_velocity_constraint_{n}"
-                        )
                         prog.AddLinearConstraint(
                             self.p_W_RF[2,n] == 0
-                        ).evaluator().set_description(f"foot_{i}_stace_z_pos_constraint_{n}")
+                        ).evaluator().set_description(f"foot_{i}_stance_z_pos_constraint_{n}")
+                        if n > 0 and self.in_stance[i, n-1]:
+                            # feet should not move during stance 
+                            constraint_args = np.concatenate([
+                                self.p_W_RF[:, n],
+                                self.p_W_RF[:, n-1],
+                                ])
+                            prog.AddConstraint(
+                                partial(foot_velocity_constraint, i = i),
+                                lb=[0., 0., 0.],
+                                ub=[0., 0., 0.],
+                                vars=constraint_args,
+                                description=f"foot_{i}_velocity_constraint_{n}"
+                            )
                 else:
-                    pass 
-                    # if i in range(4):
-                    #     prog.AddLinearConstraint(
-                    #         self.p_W_LF[2,n] >= 0.001
-                    #     ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
-                    # elif i in range(4, 8):
-                    #     prog.AddLinearConstraint(
-                    #         self.p_W_RF[2,n] >= 0.001
-                    #     ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
+                    if i in range(4):
+                        prog.AddLinearConstraint(
+                            self.p_W_LF[2,n] >= 0.001
+                        ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
+                    elif i in range(4, 8):
+                        prog.AddLinearConstraint(
+                            self.p_W_RF[2,n] >= 0.001
+                        ).evaluator().set_description(f"foot_{i}_flight_z_pos_constraint_{n}")
 
     def add_minimum_com_height_constraint(self, prog: MathematicalProgram):
         """
@@ -1033,7 +1036,7 @@ class SRBTrajopt:
         self.add_step_length_kinematic_constraint(prog)
         # # self.add_angular_velocity_constraint(prog)
         self.add_contact_wrench_cone_constraint(prog)
-        # self.add_foot_velocity_kinematic_constraint(prog)
+        self.add_foot_velocity_kinematic_constraint(prog)
         self.add_minimum_com_height_constraint(prog)
 
         return prog
