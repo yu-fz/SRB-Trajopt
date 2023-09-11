@@ -296,10 +296,10 @@ def angvel_dircol_constraint_jit(
         
         # scale all foot forces and torques by mass*gravity
         mg = -mass*gravity[2]
-        foot_forces_k1 *= mg
-        foot_forces_k2 *= mg
-        foot_torques_k1 *= mg
-        foot_torques_k2 *= mg
+        # foot_forces_k1 *= mg
+        # foot_forces_k2 *= mg
+        # foot_torques_k1 *= mg
+        # foot_torques_k2 *= mg
 
         # compute cont. dynamics at knot point 1
         # compute cont. dynamics at collocation point
