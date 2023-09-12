@@ -5,48 +5,8 @@ from .jax_utils import *
 
 jax.config.update('jax_platform_name', 'cpu')
 
-
-# @jax.jit
-# def quaternion_integration_constraint_jit(
-#     h: float,
-#     quat_k1: np.ndarray,
-#     body_angvel_k1: np.ndarray,
-#     quat_k2: np.ndarray,
-#     body_angvel_k2: np.ndarray):
-    
-#     def eval_constraint(
-#         h,
-#         quat_k1,
-#         body_angvel_k1,
-#         quat_k2,
-#         body_angvel_k2
-#         ):
-#             quat_dot_k1 = calc_quaternion_derivative(quat_k1, body_angvel_k1)
-#             quat_dot_k2 = calc_quaternion_derivative(quat_k2, body_angvel_k2)
-#             quat_dot_kc
-#     constraint_val = eval_constraint(h, quat_k1, body_angvel_k1, quat_k2, body_angvel_k2)
-#     num_args = get_num_args(eval_constraint)
-#     jacobian_fn = jax.jacfwd(eval_constraint, argnums=tuple(range(num_args)))
-
-#     jacobian = jacobian_fn(h, quat_k1, body_angvel_k1, quat_k2, body_angvel_k2)
-
-#     constraint_jac_jax_wrt_h = jacobian[0].reshape(3, -1,)
-#     constraint_jac_jax_wrt_quat_k1 = jacobian[1]
-#     constraint_jac_jax_wrt_body_angvel_k1 = jacobian[2]
-#     constraint_jac_jax_wrt_quat_k2 = jacobian[3]
-#     constraint_jac_jax_wrt_body_angvel_k2 = jacobian[4]
-
-
-#     constraint_jac_jax_wrt_x = jnp.hstack((constraint_jac_jax_wrt_h,
-#                                            constraint_jac_jax_wrt_quat_k1,
-#                                            constraint_jac_jax_wrt_body_angvel_k1,
-#                                            constraint_jac_jax_wrt_quat_k2,
-#                                            constraint_jac_jax_wrt_body_angvel_k2))
-    
-#     return constraint_val, constraint_jac_jax_wrt_x
-
 @jax.jit
-def com_dircol_constraint_jit(
+def com_dircol_constraint_jax(
     h: float,
     com_k1: np.ndarray,
     com_dot_k1: np.ndarray,
@@ -107,7 +67,7 @@ def com_dircol_constraint_jit(
     return constraint_val, constraint_jac_jax_wrt_x
 
 @jax.jit
-def com_dot_dircol_constraint_jit(
+def com_dot_dircol_constraint_jax(
     h: float,
     com_dot_k1: np.ndarray,
     foot_forces_k1: np.ndarray,
@@ -213,57 +173,87 @@ def get_foot_contact_positions(
     return rotated_foot_contact_positions
 
 @jax.jit
-def compute_omega_dot(
-    inertia_mat,
-    srb_yaw_rotation_mat,
-    p_W_com,
-    p_W_LF,
-    p_W_RF,
-    foot_forces,
-    foot_torques,
-    foot_length,
-    foot_width,
-):
+def compute_omega_dot_jax(*args):
     """
     computes body angular velocity dynamics omega_dot = f(x,u)
     as omega_dot = I^{-1}*(r_ixF_i + m_i)
     """
-    left_foot_forces = foot_forces[:, 0:4]
-    right_foot_forces = foot_forces[:, 4:8]
+    assert len(args) == 9, "compute_omega_dot requires 9 arguments"
+    
+    def _compute_omega_dot(*args):
+        # Unpack the arguments
+        (
+            inertia_mat,
+            srb_yaw_rotation_mat,
+            p_W_com,
+            p_W_LF,
+            p_W_RF,
+            foot_forces,
+            foot_torques,
+            foot_length,
+            foot_width,
+        ) = args
 
-    left_foot_torques = foot_torques[:, 0:4]
-    right_foot_torques = foot_torques[:, 4:8]
+        left_foot_forces = foot_forces[:, 0:4]
+        right_foot_forces = foot_forces[:, 4:8]
 
-    # left foot contact positions 
-    p_B_LF_contacts = get_foot_contact_positions(
-        srb_yaw_rotation_mat,
-        p_W_com,
-        p_W_LF,
-        foot_length,
-        foot_width
-    )
-    # right foot contact positions
-    p_B_RF_contacts = get_foot_contact_positions(
-        srb_yaw_rotation_mat,
-        p_W_com,
-        p_W_RF,
-        foot_length,
-        foot_width
-    )
+        left_foot_torques = foot_torques[:, 0:4]
+        right_foot_torques = foot_torques[:, 4:8]
 
-    # compute r x F for left and right foot
-    r_x_F_LF = jnp.cross(p_B_LF_contacts, left_foot_forces, axis=0)
-    r_x_F_RF = jnp.cross(p_B_RF_contacts, right_foot_forces, axis=0)
-    sum_forces = jnp.sum(r_x_F_LF + r_x_F_RF, axis=1).reshape(3, 1)
-    sum_torques = jnp.sum(left_foot_torques + right_foot_torques, axis=1).reshape(3, 1)
-    sum_wrench = jnp.sum(sum_forces + sum_torques, axis=1)
-    # return omega dot 
-    omega_dot = jnp.linalg.inv(inertia_mat)@sum_wrench
-    return omega_dot
+        # left foot contact positions 
+        p_B_LF_contacts = get_foot_contact_positions(
+            srb_yaw_rotation_mat,
+            p_W_com,
+            p_W_LF,
+            foot_length,
+            foot_width
+        )
+        # right foot contact positions
+        p_B_RF_contacts = get_foot_contact_positions(
+            srb_yaw_rotation_mat,
+            p_W_com,
+            p_W_RF,
+            foot_length,
+            foot_width
+        )
 
+        # compute r x F for left and right foot
+        r_x_F_LF = jnp.cross(p_B_LF_contacts, left_foot_forces, axis=0)
+        r_x_F_RF = jnp.cross(p_B_RF_contacts, right_foot_forces, axis=0)
+        sum_forces = jnp.sum(r_x_F_LF + r_x_F_RF, axis=1).reshape(3, 1)
+        sum_torques = jnp.sum(left_foot_torques + right_foot_torques, axis=1).reshape(3, 1)
+        sum_wrench = jnp.sum(sum_forces + sum_torques, axis=1)
+        # return omega dot 
+        omega_dot = jnp.linalg.inv(inertia_mat)@sum_wrench
+        return omega_dot
+
+    omega_dot_val = _compute_omega_dot(*args)
+    # do not compute jacobians wrt the constant foot length and width
+    omega_dot_jacobian_fn = jax.jacrev(_compute_omega_dot, argnums=tuple(range(len(args) - 2)))
+    omega_dot_jacobian = omega_dot_jacobian_fn(*args)
+
+    # Define a reshape function for use with vmap
+    def reshape_jacobian(jac):
+        if jac.shape == (3,):
+            return jac.reshape(3, 1)
+        elif jac.shape == (3, 3, 8):
+            return jac.reshape(3, -1, order='F')
+        elif jac.shape == (3, 3, 3):
+            return jac.reshape(3, -1, order='F')
+        elif jac.shape == (3, 3, 1):
+            return jac.reshape(3, -1, order='F')
+        else:
+            return jac
+
+    # Use vmap to reshape all Jacobians in the tuple
+    reshaped_omega_dot_jacobians = tuple(map(reshape_jacobian, omega_dot_jacobian))
+    # # Stack the reshaped Jacobians horizontally
+    # omega_dot_jac_jax = jnp.hstack(reshaped_angvel_jacobians)
+    
+    return omega_dot_val, reshaped_omega_dot_jacobians
 
 @jax.jit
-def angvel_dircol_constraint_jit(
+def angvel_dircol_constraint_jax(
     h: float,
     k1_decision_vars: dict,
     k2_decision_vars: dict,

@@ -66,9 +66,10 @@ import jax.numpy as jnp
 
 # import jax constraints
 from .jax_constraints import (
-    com_dot_dircol_constraint_jit,
-    com_dircol_constraint_jit,
-    angvel_dircol_constraint_jit,
+    com_dot_dircol_constraint_jax,
+    com_dircol_constraint_jax,
+    angvel_dircol_constraint_jax,
+    compute_omega_dot_jax
 )
 from .jax_utils import (
     np_to_jax,
@@ -78,8 +79,9 @@ from .jax_utils import (
 )
 
 from .autodiffxd_utils import (
-    autoDiffArrayEqual,
-    extract_ad_value_and_gradient
+    autodiff_array_equal,
+    extract_ad_value_and_gradient,
+    multiply_and_sum
 )
 
 import matplotlib.pyplot as plt
@@ -91,7 +93,8 @@ class SRBTrajopt:
         srb_builder = SRBBuilder(self.options, headless)
         self.srb_diagram, self.ad_srb_diagram = srb_builder.create_srb_diagram()
         self.srb_body_idx = self.ad_plant.GetBodyIndices(self.ad_plant.GetModelInstanceByName("body"))[0]
-        self.srb_body = self.ad_plant.GetBodyByName("body")
+        self.ad_srb_body = self.ad_plant.GetBodyByName("body")
+        self.srb_body = self.plant.GetBodyByName("body")
         self.meshcat = srb_builder.meshcat
         self.body_v0 = np.array([0., 0., 0.]) # initial body velocity
         self.ad_simulator = Simulator_[AutoDiffXd](self.ad_srb_diagram, 
@@ -258,9 +261,9 @@ class SRBTrajopt:
         Adds quadratic error cost on CoM postion decision variables from the reference CoM position
         """
         Q = np.eye(3)
-        Q[0, 0] = 2
-        Q[1, 1] = 2
-        Q[2, 2] = 10
+        Q[0, 0] = 0.001
+        Q[1, 1] = 0.001
+        Q[2, 2] = 0.001
         x_des = np.array([0., 0., 1.])
         for n in range(self.N):
             prog.AddQuadraticErrorCost(
@@ -279,12 +282,12 @@ class SRBTrajopt:
         """
         Adds quadratic error cost on control decision variables from the reference control values
         """
-        Q_force = np.eye(3)*0
-        Q_force[2, 2] = 0.1
-        Q_torque = np.eye(3)*0
-        Q_torque[2, 2] = 0.1
-        Q_dforce_dt = np.eye(3)*0
-        Q_dforce_dt[2, 2] = 0.1
+        Q_force = np.eye(3)*1e-4
+        Q_force[2, 2] = 2e-4
+        Q_torque = np.eye(3)*1e-4
+        Q_torque[2, 2] = 2e-4
+        Q_dforce_dt = np.eye(3)*1e-4
+        Q_dforce_dt[2, 2] = 2e-4
 
         def d_force_dt_cost(x: np.ndarray):
             """
@@ -306,15 +309,15 @@ class SRBTrajopt:
                 #     x_desired=np.zeros(3),
                 #     vars=self.contact_torques[i][:, n]
                 # )
-            # if n > 0:
-            #     for i in range(8):
-            #         d_force_dt_vars = np.concatenate(
-            #             (self.contact_forces[i][:, n], 
-            #              self.contact_forces[i][:, n-1]))
-            #         prog.AddCost(
-            #             d_force_dt_cost,
-            #             vars=d_force_dt_vars
-            #         )
+            if n > 0:
+                for i in range(8):
+                    d_force_dt_vars = np.concatenate(
+                        (self.contact_forces[i][:, n], 
+                         self.contact_forces[i][:, n-1]))
+                    prog.AddCost(
+                        d_force_dt_cost,
+                        vars=d_force_dt_vars
+                    )
                     # d_force_dt = 0.5* d_force_dt * Q_dforce_dt * d_force_dt
                     # print(d_force_dt)
                     # for j in range(3):
@@ -351,9 +354,8 @@ class SRBTrajopt:
         Constrains the initial CoM velocity to be zero
         """
 
-        start_pos_lb = np.array([0.8])
-        start_pos_ub = np.array([1.1])
-        
+        start_pos_lb = 0.8
+        start_pos_ub = 1.1
         prog.AddBoundingBoxConstraint(
             start_pos_lb, 
             start_pos_ub, 
@@ -399,51 +401,51 @@ class SRBTrajopt:
             rhs = ((-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2))
             return com_dot_kc - rhs 
 
-            if isinstance(x[0], AutoDiffXd):
+            # if isinstance(x[0], AutoDiffXd):
 
-                sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
-                sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
-                com_ddot_k1 = (1/self.mass)*(sum_forces_k1) + self.gravity
-                com_ddot_k2 = (1/self.mass)*(sum_forces_k2) + self.gravity
-                com_dot_kc = 0.5*(com_dot_k1 + com_dot_k2) + (h/8)*(com_ddot_k1 - com_ddot_k2)#com_dot_k1 + (h/2)*com_ddot_k1
-                # direct collocation constraint formula
-                rhs = ((-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2))
-                return com_dot_kc - rhs 
+            #     sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+            #     sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+            #     com_ddot_k1 = (1/self.mass)*(sum_forces_k1) + self.gravity
+            #     com_ddot_k2 = (1/self.mass)*(sum_forces_k2) + self.gravity
+            #     com_dot_kc = 0.5*(com_dot_k1 + com_dot_k2) + (h/8)*(com_ddot_k1 - com_ddot_k2)#com_dot_k1 + (h/2)*com_ddot_k1
+            #     # direct collocation constraint formula
+            #     rhs = ((-3/(2*h))*(com_k1 - com_k2) - (1/4)*(com_dot_k1 + com_dot_k2))
+            #     return com_dot_kc - rhs 
 
-                com_k1_val = ExtractValue(com_k1).reshape(3,)
-                com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
-                foot_forces_k1_val = ExtractValue(foot_forces_k1)
-                foot_forces_k2_val = ExtractValue(foot_forces_k2)
-                com_k2_val = ExtractValue(com_k2).reshape(3,)
-                com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
-                h_val = ExtractValue(h)
-                # Compute the constraint value and gradients using JAX
-                constraint_val, constraint_jac = com_dircol_constraint_jit(
-                    h_val.item(),
-                    com_k1_val,
-                    com_dot_k1_val,
-                    foot_forces_k1_val,
-                    foot_forces_k2_val,
-                    com_k2_val,
-                    com_dot_k2_val,
-                    self.mass,
-                    self.gravity)
+            #     com_k1_val = ExtractValue(com_k1).reshape(3,)
+            #     com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
+            #     foot_forces_k1_val = ExtractValue(foot_forces_k1)
+            #     foot_forces_k2_val = ExtractValue(foot_forces_k2)
+            #     com_k2_val = ExtractValue(com_k2).reshape(3,)
+            #     com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
+            #     h_val = ExtractValue(h)
+            #     # Compute the constraint value and gradients using JAX
+            #     constraint_val, constraint_jac = com_dircol_constraint_jit(
+            #         h_val.item(),
+            #         com_k1_val,
+            #         com_dot_k1_val,
+            #         foot_forces_k1_val,
+            #         foot_forces_k2_val,
+            #         com_k2_val,
+            #         com_dot_k2_val,
+            #         self.mass,
+            #         self.gravity)
 
-                constraint_val_ad = InitializeAutoDiff(value=constraint_val,
-                                                       gradient=constraint_jac)
-                return constraint_val_ad
-            else:
-                constraint_val, constraint_jac = com_dircol_constraint_jit(
-                    h.item(),
-                    com_k1,
-                    com_dot_k1,
-                    foot_forces_k1,
-                    foot_forces_k2,
-                    com_k2,
-                    com_dot_k2,
-                    self.mass,
-                    self.gravity)
-                return np.array(constraint_val, dtype=float).reshape(3,1)
+            #     constraint_val_ad = InitializeAutoDiff(value=constraint_val,
+            #                                            gradient=constraint_jac)
+            #     return constraint_val_ad
+            # else:
+            #     constraint_val, constraint_jac = com_dircol_constraint_jit(
+            #         h.item(),
+            #         com_k1,
+            #         com_dot_k1,
+            #         foot_forces_k1,
+            #         foot_forces_k2,
+            #         com_k2,
+            #         com_dot_k2,
+            #         self.mass,
+            #         self.gravity)
+            #     return np.array(constraint_val, dtype=float).reshape(3,1)
         
         for n in range(self.N - 2):
             # Define a list of variables to concatenate
@@ -500,50 +502,50 @@ class SRBTrajopt:
             return com_ddot_kc - rhs 
 
 
-            if isinstance(x[0], AutoDiffXd):
-                sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
-                sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
-                # average sum forces k1 and k2
-                #sum_forces_kc = jnp.mean(jnp.array([sum_forces_k1, sum_forces_k2]), axis=0)
-                sum_forces_kc = (sum_forces_k1 + sum_forces_k2) / 2
-                # normalize ground reaction forces
-                g = -self.gravity[2]
-                com_ddot_k1 = (1/self.mass)*sum_forces_k1 + self.gravity
-                com_ddot_k2 = (1/self.mass)*sum_forces_k2 + self.gravity
-                com_ddot_kc = (1/self.mass)*sum_forces_kc + self.gravity
-                # direct collocation constraint formula
-                rhs = ((-3/(2*h))*(com_dot_k1 - com_dot_k2) - (0.25)*(com_ddot_k1 + com_ddot_k2))
-                return com_ddot_kc - rhs 
+            # if isinstance(x[0], AutoDiffXd):
+            #     sum_forces_k1 = np.sum(foot_forces_k1, axis=1)
+            #     sum_forces_k2 = np.sum(foot_forces_k2, axis=1)
+            #     # average sum forces k1 and k2
+            #     #sum_forces_kc = jnp.mean(jnp.array([sum_forces_k1, sum_forces_k2]), axis=0)
+            #     sum_forces_kc = (sum_forces_k1 + sum_forces_k2) / 2
+            #     # normalize ground reaction forces
+            #     g = -self.gravity[2]
+            #     com_ddot_k1 = (1/self.mass)*sum_forces_k1 + self.gravity
+            #     com_ddot_k2 = (1/self.mass)*sum_forces_k2 + self.gravity
+            #     com_ddot_kc = (1/self.mass)*sum_forces_kc + self.gravity
+            #     # direct collocation constraint formula
+            #     rhs = ((-3/(2*h))*(com_dot_k1 - com_dot_k2) - (0.25)*(com_ddot_k1 + com_ddot_k2))
+            #     return com_ddot_kc - rhs 
 
 
-                com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
-                foot_forces_k1_val = ExtractValue(foot_forces_k1)
-                com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
-                foot_forces_k2_val = ExtractValue(foot_forces_k2)
-                h_val = ExtractValue(h)
-                # Compute the constraint value and gradients using JAX
-                constraint_val, constraint_jac = com_dot_dircol_constraint_jit(
-                    h_val.item(),
-                    com_dot_k1_val,
-                    foot_forces_k1_val,
-                    com_dot_k2_val,
-                    foot_forces_k2_val,
-                    self.mass,
-                    self.gravity)
+            #     com_dot_k1_val = ExtractValue(com_dot_k1).reshape(3,)
+            #     foot_forces_k1_val = ExtractValue(foot_forces_k1)
+            #     com_dot_k2_val = ExtractValue(com_dot_k2).reshape(3,)
+            #     foot_forces_k2_val = ExtractValue(foot_forces_k2)
+            #     h_val = ExtractValue(h)
+            #     # Compute the constraint value and gradients using JAX
+            #     constraint_val, constraint_jac = com_dot_dircol_constraint_jit(
+            #         h_val.item(),
+            #         com_dot_k1_val,
+            #         foot_forces_k1_val,
+            #         com_dot_k2_val,
+            #         foot_forces_k2_val,
+            #         self.mass,
+            #         self.gravity)
 
-                constraint_val_ad = InitializeAutoDiff(value=constraint_val,
-                                                       gradient=constraint_jac)
-                return constraint_val_ad
-            else:
-                constraint_val, constraint_jac = com_dot_dircol_constraint_jit(
-                    h.item(),
-                    com_dot_k1,
-                    foot_forces_k1,
-                    com_dot_k2,
-                    foot_forces_k2,
-                    self.mass,
-                    self.gravity)
-                return np.array(constraint_val, dtype=float).reshape(3,1)
+            #     constraint_val_ad = InitializeAutoDiff(value=constraint_val,
+            #                                            gradient=constraint_jac)
+            #     return constraint_val_ad
+            # else:
+            #     constraint_val, constraint_jac = com_dot_dircol_constraint_jit(
+            #         h.item(),
+            #         com_dot_k1,
+            #         foot_forces_k1,
+            #         com_dot_k2,
+            #         foot_forces_k2,
+            #         self.mass,
+            #         self.gravity)
+            #     return np.array(constraint_val, dtype=float).reshape(3,1)
 
         for n in range(self.N - 2):
             # Define a list of variables to concatenate
@@ -583,12 +585,112 @@ class SRBTrajopt:
         Integrates the contact torque decision variables to constrain angular velocity decision variables
         """
 
-        # Create autodiff contexts for this constraint (to maximize cache hits)
-        # ad_angular_velocity_dynamics_context = [
-        #     self.ad_plant.CreateDefaultContext() for i in range(self.N)
-        # ]
+        # Create autodiff and regular contexts for this constraint (to maximize cache hits)
+        ad_angular_velocity_dynamics_context = [
+            self.ad_plant.CreateDefaultContext() for i in range(self.N)
+        ]
 
-        def angular_velocity_constraint(x: np.ndarray,):
+        angular_velocity_dynamics_context = [
+            self.plant.CreateDefaultContext() for i in range(self.N)
+        ]
+
+        def get_foot_contact_positions(
+            srb_yaw_rotation_mat,
+            p_W_com,
+            p_W_F,
+            foot_length,
+            foot_width
+        ):
+            """
+            Computes the positions of the four contact points 
+            of the left and right foot from the foot conctact location,
+            and rotates the positions of the contact points to the body yaw angle d
+
+            p_B_F_W: 3x1 array of the foot contact location measured from the body frame expressed in the world frame
+            
+            Returns:
+                rotated_foot_contact_positions: 3x4 array of the rotated foot contact positions
+            """
+            p_B_F_W = p_W_F - p_W_com
+
+            p_b_f_w_c1 = np.array([
+                p_B_F_W[0] + foot_length/2,
+                p_B_F_W[1] + foot_width/2,
+                p_B_F_W[2]
+            ]).reshape(3, 1)
+
+            p_b_f_w_c2 = np.array([
+                p_B_F_W[0] + foot_length/2,
+                p_B_F_W[1] - foot_width/2,
+                p_B_F_W[2]
+            ]).reshape(3, 1)
+
+            p_b_f_w_c3 = np.array([
+                p_B_F_W[0] - foot_length/2,
+                p_B_F_W[1] + foot_width/2,
+                p_B_F_W[2]
+            ]).reshape(3, 1)
+
+            p_b_f_w_c4 = np.array([
+                p_B_F_W[0] - foot_length/2,
+                p_B_F_W[1] - foot_width/2,
+                p_B_F_W[2]
+            ]).reshape(3, 1)
+            foot_contact_positions = np.hstack((p_b_f_w_c1, p_b_f_w_c2, p_b_f_w_c3, p_b_f_w_c4))
+            rotated_foot_contact_positions = srb_yaw_rotation_mat@foot_contact_positions
+            return rotated_foot_contact_positions
+
+        def compute_omega_dot(
+            inertia_mat,
+            srb_yaw_rotation_mat,
+            p_W_com,
+            p_W_LF,
+            p_W_RF,
+            foot_forces,
+            foot_torques,
+            foot_length,
+            foot_width,
+        ):
+            """
+            computes body angular velocity dynamics omega_dot = f(x,u)
+            as omega_dot = I^{-1}*(r_ixF_i + m_i)
+            """
+            left_foot_forces = foot_forces[:, 0:4]
+            right_foot_forces = foot_forces[:, 4:8]
+
+            left_foot_torques = foot_torques[:, 0:4]
+            right_foot_torques = foot_torques[:, 4:8]
+
+            # left foot contact positions 
+            p_B_LF_contacts = get_foot_contact_positions(
+                srb_yaw_rotation_mat,
+                p_W_com,
+                p_W_LF,
+                foot_length,
+                foot_width
+            )
+            # right foot contact positions
+            p_B_RF_contacts = get_foot_contact_positions(
+                srb_yaw_rotation_mat,
+                p_W_com,
+                p_W_RF,
+                foot_length,
+                foot_width
+            )
+
+            # compute r x F for left and right foot
+            r_x_F_LF = np.cross(p_B_LF_contacts, left_foot_forces, axis=0)
+            r_x_F_RF = np.cross(p_B_RF_contacts, right_foot_forces, axis=0)
+            sum_forces = np.sum(r_x_F_LF + r_x_F_RF, axis=1).reshape(3, 1)
+            sum_torques = np.sum(left_foot_torques + right_foot_torques, axis=1).reshape(3, 1)
+            sum_wrench = np.sum(sum_forces + sum_torques, axis=1)
+            # return omega dot 
+            omega_dot = np.linalg.solve(inertia_mat, sum_wrench)
+
+            return omega_dot
+
+
+        def angular_velocity_constraint(x: np.ndarray, context_idx: int):
             # Define variable names and their corresponding indices
             # Split the input array using the indices
             split_vars = np.split(x, [
@@ -639,35 +741,318 @@ class SRBTrajopt:
             k2_decision_vars["p_W_RF_k2"] = ExtractValue(p_W_RF_k2).reshape(3,)
             k2_decision_vars["foot_forces_k2"] = ExtractValue(foot_forces_k2)
             k2_decision_vars["foot_torques_k2"] = ExtractValue(foot_torques_k2)
-            
+
             if isinstance(x[0], AutoDiffXd):
-                h_val = ExtractValue(h)
-                constraint_val, constraint_jac = angvel_dircol_constraint_jit(
-                    h_val.item(),
-                    k1_decision_vars,
-                    k2_decision_vars,
-                    self.options.foot_length,
-                    self.options.foot_width,
-                    self.I_BBo_B,
-                    self.mass,
-                    self.gravity
+                srb_position_state_k1 = np.concatenate((quat_k1, com_k1))
+                srb_velocity_state_k1 = np.concatenate((body_angvel_k1, com_dot_k1))
+                
+                srb_position_state_k2 = np.concatenate((quat_k2, com_k2))
+                srb_velocity_state_k2 = np.concatenate((body_angvel_k2, com_dot_k2))
+
+                srb_context_position_state_k1 = self.ad_plant.GetPositions(
+                    ad_angular_velocity_dynamics_context[context_idx]
+                )
+                srb_context_velocity_state_k1 = self.ad_plant.GetVelocities(
+                    ad_angular_velocity_dynamics_context[context_idx]
                 )
 
-                constraint_val_ad = InitializeAutoDiff(value=constraint_val,
-                                                       gradient=constraint_jac)
-                return constraint_val_ad
-            else:   
-                constraint_val, constraint_jac = angvel_dircol_constraint_jit(
-                    h.item(),
-                    k1_decision_vars,
-                    k2_decision_vars,
-                    self.options.foot_length,
-                    self.options.foot_width,
-                    self.I_BBo_B,
-                    self.mass,
-                    self.gravity
+                srb_context_position_state_k2 = self.ad_plant.GetPositions(
+                    ad_angular_velocity_dynamics_context[context_idx + 1]
                 )
-                return np.array(constraint_val, dtype=float).reshape(3,1)
+                srb_context_velocity_state_k2 = self.ad_plant.GetVelocities(
+                    ad_angular_velocity_dynamics_context[context_idx + 1]
+                )
+
+                # Set the context positions and velocities
+                if (not autodiff_array_equal(srb_position_state_k1, srb_context_position_state_k1)) or \
+                    (not autodiff_array_equal(srb_velocity_state_k1, srb_context_velocity_state_k1)):
+                    self.ad_plant.SetPositionsAndVelocities(
+                        ad_angular_velocity_dynamics_context[context_idx],
+                        np.concatenate((srb_position_state_k1, srb_velocity_state_k1))
+                    )
+                if (not autodiff_array_equal(srb_position_state_k2, srb_context_position_state_k2)) or \
+                    (not autodiff_array_equal(srb_velocity_state_k2, srb_context_velocity_state_k2)):
+                    self.ad_plant.SetPositionsAndVelocities(
+                        ad_angular_velocity_dynamics_context[context_idx + 1],
+                        np.concatenate((srb_position_state_k2, srb_velocity_state_k2))
+                    )
+                
+                I_B_W_k1 = self.ad_plant.CalcSpatialInertia(
+                    ad_angular_velocity_dynamics_context[context_idx],
+                    self.ad_plant.world_frame(),
+                    [self.srb_body_idx]
+                ).CalcRotationalInertia().CopyToFullMatrix3()
+
+                I_B_W_k2 = self.ad_plant.CalcSpatialInertia(
+                    ad_angular_velocity_dynamics_context[context_idx + 1],
+                    self.ad_plant.world_frame(),
+                    [self.srb_body_idx]
+                ).CalcRotationalInertia().CopyToFullMatrix3()
+                srb_orientation_euler_k1 = self.ad_plant.EvalBodyPoseInWorld(
+                    ad_angular_velocity_dynamics_context[context_idx],
+                    self.ad_srb_body
+                ).rotation().ToRollPitchYaw().vector()
+
+                srb_yaw_rotation_k1 = RotationMatrix_[AutoDiffXd].MakeZRotation(srb_orientation_euler_k1[2]).matrix()
+                q_dot_k1 = np.zeros_like(srb_context_position_state_k1)
+                q_dot_k2 = np.zeros_like(srb_context_position_state_k2)
+                q_dot_k1 = self.ad_plant.MapVelocityToQDot(
+                    ad_angular_velocity_dynamics_context[context_idx],
+                    self.ad_plant.GetVelocities(ad_angular_velocity_dynamics_context[context_idx]),
+                )
+                q_dot_k2 = self.ad_plant.MapVelocityToQDot(
+                    ad_angular_velocity_dynamics_context[context_idx + 1],
+                    self.ad_plant.GetVelocities(ad_angular_velocity_dynamics_context[context_idx + 1]),
+                )
+
+                quat_dot_k1 = q_dot_k1[0:4]
+                quat_dot_k2 = q_dot_k2[0:4]
+                k1_variables = [
+                    I_B_W_k1.reshape(3,3),
+                    srb_yaw_rotation_k1.reshape(3,3),
+                    com_k1.reshape(3,),
+                    p_W_LF_k1.reshape(3,),
+                    p_W_RF_k1.reshape(3,),
+                    foot_forces_k1,
+                    foot_torques_k1,
+                ]
+                k1_values = [ExtractValue(var) for var in k1_variables]
+                k1_grads = [ExtractGradient(var) for var in k1_variables]
+                
+                k2_variables = [
+                    I_B_W_k2.reshape(3,3),
+                    srb_yaw_rotation_k1.reshape(3,3),
+                    com_k2.reshape(3,),
+                    p_W_LF_k2.reshape(3,),
+                    p_W_RF_k2.reshape(3,),
+                    foot_forces_k2,
+                    foot_torques_k2,
+                ]
+                k2_values = [ExtractValue(var) for var in k2_variables]
+                k2_grads = [ExtractGradient(var) for var in k2_variables]
+                
+                omega_dot_k1, omega_dot_k1_jac = compute_omega_dot_jax(
+                    *k1_values,
+                    self.options.foot_length,
+                    self.options.foot_width
+                )
+                #omega_dot_k1_jac = [omega_dot_k1[i]*scale for i in range(len(omega_dot_k1_jac))]
+                #omega_dot_k1_jac *= scale
+
+                # Use map to apply the function to each pair of matrices
+                k1_chain_rule_matrices = map(multiply_and_sum, zip(omega_dot_k1_jac, k1_grads))
+                # Convert the result_matrices to a NumPy array and sum along the 3rd axis
+                del_omega_dot_del_x = np.sum(np.array(list(k1_chain_rule_matrices)), axis=0)
+                omega_dot_k1 = InitializeAutoDiff(value=omega_dot_k1, gradient=del_omega_dot_del_x).reshape(3,)
+
+                omega_dot_k2, omega_dot_k2_jac = compute_omega_dot_jax(
+                    *k2_values,
+                    self.options.foot_length,
+                    self.options.foot_width
+                )
+                #omega_dot_k2_jac = [omega_dot_k2[i]*scale for i in range(len(omega_dot_k2_jac))]
+                #omega_dot_k2_jac *= 1/scale
+
+                k2_chain_rule_matrices = map(multiply_and_sum, zip(omega_dot_k2_jac, k2_grads))
+                del_omega_dot_del_x = np.sum(np.array(list(k2_chain_rule_matrices)), axis=0)
+                omega_dot_k2 = InitializeAutoDiff(value=omega_dot_k2, gradient=del_omega_dot_del_x).reshape(3,)
+
+                foot_forces_kc = np.array([foot_forces_k1, foot_forces_k2]).mean(axis=0)
+                foot_torques_kc = np.array([foot_torques_k1, foot_torques_k2]).mean(axis=0)
+
+                # foot positions in stance should not change, so p_W_F_kc = p_W_F_k1 = p_W_F_k2
+                p_W_LF_kc = np.array([p_W_LF_k1, p_W_LF_k2]).mean(axis=0)
+                p_W_RF_kc = np.array([p_W_RF_k1, p_W_RF_k2]).mean(axis=0)
+                # initial body orientation quat_k1 is used for all dynamics evaluations 
+                # because the feet in contact do not move 
+                # compute com_kc 
+                com_kc = 0.5*(com_k1 + com_k2) + (h/8)*(com_dot_k1 - com_dot_k2)
+                # quat_kc 
+                quat_kc = 0.5*(quat_k1 + quat_k2) + (h/8)* \
+                    (quat_dot_k1 - quat_dot_k2)
+                # normalize quat_kc
+                quat_kc = quat_kc / np.linalg.norm(quat_kc)
+                
+                srb_kc_context = self.ad_plant.CreateDefaultContext()
+                self.ad_plant.SetPositions(
+                    srb_kc_context,
+                    np.concatenate((quat_kc, com_kc))
+                )
+                I_B_W_kc = self.ad_plant.CalcSpatialInertia(
+                    srb_kc_context,
+                    self.ad_plant.world_frame(),
+                    [self.srb_body_idx]
+                ).CalcRotationalInertia().CopyToFullMatrix3()
+                kc_variables = [
+                    I_B_W_kc.reshape(3,3),
+                    srb_yaw_rotation_k1.reshape(3,3),
+                    com_kc.reshape(3,),
+                    p_W_LF_kc.reshape(3,),
+                    p_W_RF_kc.reshape(3,),
+                    foot_forces_kc,
+                    foot_torques_kc,
+                ]
+                kc_values = [ExtractValue(var) for var in kc_variables]
+                kc_grads = [ExtractGradient(var) for var in kc_variables]
+
+                omega_dot_kc, omega_dot_kc_jac = compute_omega_dot_jax(
+                    *kc_values,
+                    self.options.foot_length,
+                    self.options.foot_width
+                )
+                # omega_dot_kc_jac = [omega_dot_kc[i]*scale for i in range(len(omega_dot_kc_jac))]
+                # #omega_dot_kc_jac *= scale
+                # #omega_dot_kc_jac[-2] *= 1/scale
+
+                kc_chain_rule_matrices = map(multiply_and_sum, zip(omega_dot_kc_jac, kc_grads))
+                del_omega_dot_del_x = np.sum(np.array(list(kc_chain_rule_matrices)), axis=0)
+                omega_dot_kc = InitializeAutoDiff(value=omega_dot_kc, gradient=del_omega_dot_del_x).reshape(3,)
+                # print(omega_dot_kc.shape)
+                # direct collocation constraint formula
+                rhs = ((-3/(2*h))*(body_angvel_k1 - body_angvel_k2) - (1/4)*(omega_dot_k1 + omega_dot_k2))
+                return omega_dot_kc - rhs
+
+            else:   
+                srb_position_state_k1 = np.concatenate((quat_k1, com_k1))
+                srb_velocity_state_k1 = np.concatenate((body_angvel_k1, com_dot_k1))
+                
+                srb_position_state_k2 = np.concatenate((quat_k2, com_k2))
+                srb_velocity_state_k2 = np.concatenate((body_angvel_k2, com_dot_k2))
+
+                srb_context_position_state_k1 = self.ad_plant.GetPositions(
+                    ad_angular_velocity_dynamics_context[context_idx]
+                )
+                srb_context_velocity_state_k1 = self.ad_plant.GetVelocities(
+                    ad_angular_velocity_dynamics_context[context_idx]
+                )
+
+                srb_context_position_state_k2 = self.ad_plant.GetPositions(
+                    ad_angular_velocity_dynamics_context[context_idx + 1]
+                )
+                srb_context_velocity_state_k2 = self.ad_plant.GetVelocities(
+                    ad_angular_velocity_dynamics_context[context_idx + 1]
+                )
+                # Set the context positions and velocities
+                if (not np.array_equal(srb_position_state_k1, srb_context_position_state_k1)) or \
+                    (not np.array_equal(srb_velocity_state_k1, srb_context_velocity_state_k1)):
+                    self.plant.SetPositionsAndVelocities(
+                        angular_velocity_dynamics_context[context_idx],
+                        np.concatenate((srb_position_state_k1, srb_velocity_state_k1))
+                    )
+                if (not np.array_equal(srb_position_state_k2, srb_context_position_state_k2)) or \
+                    (not np.array_equal(srb_velocity_state_k2, srb_context_velocity_state_k2)):
+                    self.plant.SetPositionsAndVelocities(
+                        angular_velocity_dynamics_context[context_idx + 1],
+                        np.concatenate((srb_position_state_k2, srb_velocity_state_k2))
+                    )
+                
+                I_B_W_k1 = self.plant.CalcSpatialInertia(
+                    angular_velocity_dynamics_context[context_idx],
+                    self.plant.world_frame(),
+                    [self.srb_body_idx]
+                ).CalcRotationalInertia().CopyToFullMatrix3()
+
+                I_B_W_k2 = self.plant.CalcSpatialInertia(
+                    angular_velocity_dynamics_context[context_idx + 1],
+                    self.plant.world_frame(),
+                    [self.srb_body_idx]
+                ).CalcRotationalInertia().CopyToFullMatrix3()
+                srb_orientation_euler_k1 = self.plant.EvalBodyPoseInWorld(
+                    angular_velocity_dynamics_context[context_idx],
+                    self.srb_body
+                ).rotation().ToRollPitchYaw().vector()
+
+                srb_yaw_rotation_k1 = RotationMatrix.MakeZRotation(srb_orientation_euler_k1[2]).matrix()
+                q_dot_k1 = np.zeros_like(srb_context_position_state_k1)
+                q_dot_k2 = np.zeros_like(srb_context_position_state_k2)
+                q_dot_k1 = self.plant.MapVelocityToQDot(
+                    angular_velocity_dynamics_context[context_idx],
+                    self.plant.GetVelocities(angular_velocity_dynamics_context[context_idx]),
+                )
+                q_dot_k2 = self.plant.MapVelocityToQDot(
+                    angular_velocity_dynamics_context[context_idx + 1],
+                    self.plant.GetVelocities(angular_velocity_dynamics_context[context_idx + 1]),
+                )
+
+                quat_dot_k1 = q_dot_k1[0:4]
+                quat_dot_k2 = q_dot_k2[0:4]
+                k1_variables = [
+                    I_B_W_k1.reshape(3,3),
+                    srb_yaw_rotation_k1.reshape(3,3),
+                    com_k1.reshape(3,),
+                    p_W_LF_k1.reshape(3,),
+                    p_W_RF_k1.reshape(3,),
+                    foot_forces_k1,
+                    foot_torques_k1,
+                ]
+
+                k2_variables = [
+                    I_B_W_k2.reshape(3,3),
+                    srb_yaw_rotation_k1.reshape(3,3),
+                    com_k2.reshape(3,),
+                    p_W_LF_k2.reshape(3,),
+                    p_W_RF_k2.reshape(3,),
+                    foot_forces_k2,
+                    foot_torques_k2,
+                ]
+
+                omega_dot_k1 = compute_omega_dot(
+                    *k1_variables,
+                    self.options.foot_length,
+                    self.options.foot_width
+                )
+
+                omega_dot_k2 = compute_omega_dot(
+                    *k2_variables,
+                    self.options.foot_length,
+                    self.options.foot_width
+                )
+
+                foot_forces_kc = np.array([foot_forces_k1, foot_forces_k2]).mean(axis=0)
+                foot_torques_kc = np.array([foot_torques_k1, foot_torques_k2]).mean(axis=0)
+
+                # foot positions in stance should not change, so p_W_F_kc = p_W_F_k1 = p_W_F_k2
+                p_W_LF_kc = np.array([p_W_LF_k1, p_W_LF_k2]).mean(axis=0)
+                p_W_RF_kc = np.array([p_W_RF_k1, p_W_RF_k2]).mean(axis=0)
+                # initial body orientation quat_k1 is used for all dynamics evaluations 
+                # because the feet in contact do not move 
+                # compute com_kc 
+                com_kc = 0.5*(com_k1 + com_k2) + (h/8)*(com_dot_k1 - com_dot_k2)
+                # quat_kc 
+                quat_kc = 0.5*(quat_k1 + quat_k2) + (h/8)* \
+                    (quat_dot_k1 - quat_dot_k2)
+                # normalize quat_kc
+                quat_kc = quat_kc / np.linalg.norm(quat_kc)
+                
+                srb_kc_context = self.plant.CreateDefaultContext()
+                self.plant.SetPositions(
+                    srb_kc_context,
+                    np.concatenate((quat_kc, com_kc))
+                )
+                I_B_W_kc = self.plant.CalcSpatialInertia(
+                    srb_kc_context,
+                    self.plant.world_frame(),
+                    [self.srb_body_idx]
+                ).CalcRotationalInertia().CopyToFullMatrix3()
+                kc_variables = [
+                    I_B_W_kc.reshape(3,3),
+                    srb_yaw_rotation_k1.reshape(3,3),
+                    com_kc.reshape(3,),
+                    p_W_LF_kc.reshape(3,),
+                    p_W_RF_kc.reshape(3,),
+                    foot_forces_kc,
+                    foot_torques_kc,
+                ]
+
+                omega_dot_kc = compute_omega_dot(
+                    *kc_variables,
+                    self.options.foot_length,
+                    self.options.foot_width
+                )
+
+                # direct collocation constraint formula
+                rhs = ((-3/(2*h))*(body_angvel_k1 - body_angvel_k2) - (1/4)*(omega_dot_k1 + omega_dot_k2))
+                return omega_dot_kc - rhs
 
         for n in range(self.N - 2):
             # Define a list of variables to concatenate
@@ -693,7 +1078,7 @@ class SRBTrajopt:
             flattened_variables = [item for sublist in angvel_constraint_variables for item in sublist]
 
             prog.AddConstraint(
-                angular_velocity_constraint,
+                partial(angular_velocity_constraint, context_idx=n),
                 lb=[0,0,0],
                 ub=[0,0,0],
                 vars=np.array(flattened_variables),
@@ -1022,8 +1407,8 @@ class SRBTrajopt:
         self.set_trajopt_initial_guess(prog)
 
         ### Add Costs ###
-        # self.add_com_position_cost(prog)
-        # self.add_control_cost(prog)
+        self.add_com_position_cost(prog)
+        self.add_control_cost(prog)
 
         ### Add Constraints ###
         self.add_time_scaling_constraint(prog)
@@ -1034,7 +1419,7 @@ class SRBTrajopt:
         
         self.add_initial_position_velocity_constraint(prog)
         self.add_step_length_kinematic_constraint(prog)
-        # # self.add_angular_velocity_constraint(prog)
+        self.add_angular_velocity_constraint(prog)
         self.add_contact_wrench_cone_constraint(prog)
         self.add_foot_velocity_kinematic_constraint(prog)
         self.add_minimum_com_height_constraint(prog)
@@ -1062,16 +1447,16 @@ class SRBTrajopt:
         Solve the completed optimization problem with all constraints and costs defined
         """
         prog = self.formulate_trajopt_problem()
+        self.configure_snopt_solver(prog)
         # scale contact force/torque decision variables
         mg = -self.mass*self.gravity[2]
         for i in range(len(self.contact_forces)):
             for j in range(3):
                 for k in range(len(self.contact_forces[i][j])):
                     prog.SetVariableScaling(self.contact_forces[i][j, k], mg)
-                    prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
+                    # prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
 
-        snopt = SnoptSolver()
-        res = snopt.Solve(prog)
+        res = Solve(prog)
         quat = res.GetSolution(self.body_quat)
         print(res.is_success())
         print(res.get_solver_details().info)
@@ -1132,7 +1517,7 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.zeros((8, N))
+        in_stance = np.ones((8, N))
         in_stance[0:4, 0:int(N/2)] = 1
         in_stance[4:8, int(N/2)-1:N] = 1
         self.in_stance = in_stance
