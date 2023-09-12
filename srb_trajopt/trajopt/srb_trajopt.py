@@ -210,30 +210,31 @@ class SRBTrajopt:
                 self.body_quat[:, n],
                 default_quat
             )
-        # for n in range(self.N - 1):
-        #     for i in range(len(self.contact_forces)):
-        #         if self.in_stance[i, n]:
-        #             # set foot force guess
-        #             prog.SetInitialGuess(
-        #                 self.contact_forces[i][:, n],
-        #                 np.ones(3)*1/8
-        #             )
-        #             # set foot torque guess
-        #             prog.SetInitialGuess(
-        #                 self.contact_torques[i][:, n],
-        #                 np.ones(3)*1/8
-        #             )
-        #         else:
-        #             # set foot force guess
-        #             prog.SetInitialGuess(
-        #                 self.contact_forces[i][:, n],
-        #                 np.zeros(3)
-        #             )
-        #             # set foot torque guess
-        #             prog.SetInitialGuess(
-        #                 self.contact_torques[i][:, n],
-        #                 np.zeros(3)
-        #             )
+        mg = 55*9.81
+        for n in range(self.N - 1):
+            for i in range(len(self.contact_forces)):
+                if self.in_stance[i, n]:
+                    # set foot force guess
+                    prog.SetInitialGuess(
+                        self.contact_forces[i][2, n],
+                        mg/len(self.contact_forces)
+                    )
+                    # set foot torque guess
+                    # prog.SetInitialGuess(
+                    #     self.contact_torques[i][:, n],
+                    #     np.ones(3)*1/8
+                    # )
+                else:
+                    # set foot force guess
+                    prog.SetInitialGuess(
+                        self.contact_forces[i][2, n],
+                        0
+                    )
+                    # set foot torque guess
+                    # prog.SetInitialGuess(
+                    #     self.contact_torques[i][:, n],
+                    #     np.zeros(3)
+                    # )
 
             # # set body angular velocity guess
             # prog.SetInitialGuess(
@@ -282,12 +283,13 @@ class SRBTrajopt:
         """
         Adds quadratic error cost on control decision variables from the reference control values
         """
-        Q_force = np.eye(3)*1
-        Q_force[2, 2] = 1
-        Q_torque = np.eye(3)*1
+        mg = 55*9.81*20
+        Q_force = np.eye(3)*1/mg
+        Q_force[2, 2] = 1/mg
+        Q_torque = np.eye(3)*1/mg
         Q_torque[2, 2] = 1
-        Q_dforce_dt = np.eye(3)*1
-        Q_dforce_dt[2, 2] = 1
+        Q_dforce_dt = np.eye(3)*1/mg
+        Q_dforce_dt[2, 2] = 1/mg
 
         def d_force_dt_cost(x: np.ndarray):
             """
@@ -301,7 +303,7 @@ class SRBTrajopt:
             for i in range(8):
                 prog.AddQuadraticErrorCost(
                     Q=Q_force,
-                    x_desired=np.array([0, 0, 55*9.81/8]),
+                    x_desired=np.array([0, 0, 0]),
                     vars=self.contact_forces[i][:, n]
                 )
                 # prog.AddQuadraticErrorCost(
@@ -309,15 +311,15 @@ class SRBTrajopt:
                 #     x_desired=np.zeros(3),
                 #     vars=self.contact_torques[i][:, n]
                 # )
-            # if n > 0:
-            #     for i in range(8):
-            #         d_force_dt_vars = np.concatenate(
-            #             (self.contact_forces[i][:, n], 
-            #              self.contact_forces[i][:, n-1]))
-            #         prog.AddCost(
-            #             d_force_dt_cost,
-            #             vars=d_force_dt_vars
-            #         )
+            if n > 0:
+                for i in range(8):
+                    d_force_dt_vars = np.concatenate(
+                        (self.contact_forces[i][:, n], 
+                         self.contact_forces[i][:, n-1]))
+                    prog.AddCost(
+                        d_force_dt_cost,
+                        vars=d_force_dt_vars
+                    )
                     # d_force_dt = 0.5* d_force_dt * Q_dforce_dt * d_force_dt
                     # print(d_force_dt)
                     # for j in range(3):
@@ -367,11 +369,11 @@ class SRBTrajopt:
             self.com[2, -1]).evaluator().set_description("final body pos constraint")
 
         # ### test com velocity constraint
-        for n in range(self.N - 1):
-            prog.AddBoundingBoxConstraint(
-                [0, 0, -0.002],
-                [0, 0, 0.002],
-                self.com_dot[:, n]).evaluator().set_description("com velocity constraint")
+        # for n in range(self.N - 1):
+        #     prog.AddBoundingBoxConstraint(
+        #         [0, 0, -0.002],
+        #         [0, 0, 0.002],
+        #         self.com_dot[:, n]).evaluator().set_description("com velocity constraint")
                            
     def add_com_position_constraint(self, prog: MathematicalProgram):
         """
@@ -1422,7 +1424,7 @@ class SRBTrajopt:
 
         ### Add Costs ###
         self.add_com_position_cost(prog)
-        self.add_control_cost(prog)
+        #self.add_control_cost(prog)
 
         ### Add Constraints ###
         self.add_time_scaling_constraint(prog)
@@ -1464,11 +1466,11 @@ class SRBTrajopt:
         self.configure_snopt_solver(prog)
         # scale contact force/torque decision variables
         mg = -self.mass*self.gravity[2]
-        # for i in range(len(self.contact_forces)):
-        #     for j in range(3):
-        #         for k in range(len(self.contact_forces[i][j])):
-        #             prog.SetVariableScaling(self.contact_forces[i][j, k], mg)
-        #             # prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
+        for i in range(len(self.contact_forces)):
+            for j in range(3):
+                for k in range(len(self.contact_forces[i][j])):
+                    prog.SetVariableScaling(self.contact_forces[i][j, k], mg)
+                    # prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
 
         res = Solve(prog)
         quat = res.GetSolution(self.body_quat)
@@ -1531,9 +1533,9 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.zeros((8, N))
-        in_stance[0:4, 0:int(N/2)] = 1
-        in_stance[4:8, int(N/2)-1:N] = 1
+        in_stance = np.ones((8, N))
+        in_stance[0:4, int(N/4):int(3*N/4)] = 0
+        in_stance[4:8, int(N/4):int(2*N/4)] = 0
         self.in_stance = in_stance
 
     def render_srb(self) -> None:
