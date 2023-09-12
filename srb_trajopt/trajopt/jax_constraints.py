@@ -193,12 +193,13 @@ def compute_omega_dot_jax(*args):
             foot_length,
             foot_width,
         ) = args
-
+        
         left_foot_forces = foot_forces[:, 0:4]
         right_foot_forces = foot_forces[:, 4:8]
 
         left_foot_torques = foot_torques[:, 0:4]
         right_foot_torques = foot_torques[:, 4:8]
+        
 
         # left foot contact positions 
         p_B_LF_contacts = get_foot_contact_positions(
@@ -247,8 +248,6 @@ def compute_omega_dot_jax(*args):
 
     # Use vmap to reshape all Jacobians in the tuple
     reshaped_omega_dot_jacobians = tuple(map(reshape_jacobian, omega_dot_jacobian))
-    # # Stack the reshaped Jacobians horizontally
-    # omega_dot_jac_jax = jnp.hstack(reshaped_angvel_jacobians)
     
     return omega_dot_val, reshaped_omega_dot_jacobians
 
@@ -311,7 +310,7 @@ def angvel_dircol_constraint_jax(
             mass
         )
 
-        omega_dot_k1 = compute_omega_dot(
+        omega_dot_k1, _ = compute_omega_dot_jax(
             I_B_W_k1,
             srb_yaw_rotation_mat_k1,
             com_k1,
@@ -344,7 +343,7 @@ def angvel_dircol_constraint_jax(
             mass
         )
 
-        omega_dot_kc = compute_omega_dot(
+        omega_dot_kc, _ = compute_omega_dot_jax(
             I_B_W_kc,
             srb_yaw_rotation_mat_k1,
             com_kc,
@@ -356,7 +355,7 @@ def angvel_dircol_constraint_jax(
             foot_width,
         )
 
-        omega_dot_k2 = compute_omega_dot(
+        omega_dot_k2, _ = compute_omega_dot_jax(
             I_B_W_k2,
             srb_yaw_rotation_mat_k1,
             com_k2,

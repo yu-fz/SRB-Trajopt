@@ -263,7 +263,7 @@ class SRBTrajopt:
         Q = np.eye(3)
         Q[0, 0] = 0.001
         Q[1, 1] = 0.001
-        Q[2, 2] = 0.001
+        Q[2, 2] = 0.005
         x_des = np.array([0., 0., 1.])
         for n in range(self.N):
             prog.AddQuadraticErrorCost(
@@ -282,12 +282,12 @@ class SRBTrajopt:
         """
         Adds quadratic error cost on control decision variables from the reference control values
         """
-        Q_force = np.eye(3)*1e-4
-        Q_force[2, 2] = 2e-4
-        Q_torque = np.eye(3)*1e-4
-        Q_torque[2, 2] = 2e-4
-        Q_dforce_dt = np.eye(3)*1e-4
-        Q_dforce_dt[2, 2] = 2e-4
+        Q_force = np.eye(3)*1
+        Q_force[2, 2] = 1
+        Q_torque = np.eye(3)*1
+        Q_torque[2, 2] = 1
+        Q_dforce_dt = np.eye(3)*1
+        Q_dforce_dt[2, 2] = 1
 
         def d_force_dt_cost(x: np.ndarray):
             """
@@ -301,7 +301,7 @@ class SRBTrajopt:
             for i in range(8):
                 prog.AddQuadraticErrorCost(
                     Q=Q_force,
-                    x_desired=np.zeros(3),
+                    x_desired=np.array([0, 0, 55*9.81/8]),
                     vars=self.contact_forces[i][:, n]
                 )
                 # prog.AddQuadraticErrorCost(
@@ -309,15 +309,15 @@ class SRBTrajopt:
                 #     x_desired=np.zeros(3),
                 #     vars=self.contact_torques[i][:, n]
                 # )
-            if n > 0:
-                for i in range(8):
-                    d_force_dt_vars = np.concatenate(
-                        (self.contact_forces[i][:, n], 
-                         self.contact_forces[i][:, n-1]))
-                    prog.AddCost(
-                        d_force_dt_cost,
-                        vars=d_force_dt_vars
-                    )
+            # if n > 0:
+            #     for i in range(8):
+            #         d_force_dt_vars = np.concatenate(
+            #             (self.contact_forces[i][:, n], 
+            #              self.contact_forces[i][:, n-1]))
+            #         prog.AddCost(
+            #             d_force_dt_cost,
+            #             vars=d_force_dt_vars
+            #         )
                     # d_force_dt = 0.5* d_force_dt * Q_dforce_dt * d_force_dt
                     # print(d_force_dt)
                     # for j in range(3):
@@ -367,11 +367,11 @@ class SRBTrajopt:
             self.com[2, -1]).evaluator().set_description("final body pos constraint")
 
         # ### test com velocity constraint
-        # for n in range(self.N - 1):
-        prog.AddBoundingBoxConstraint(
-            self.body_v0,
-            self.body_v0,
-            self.com_dot[:, 0]).evaluator().set_description("com velocity constraint")
+        for n in range(self.N - 1):
+            prog.AddBoundingBoxConstraint(
+                [0, 0, -0.002],
+                [0, 0, 0.002],
+                self.com_dot[:, n]).evaluator().set_description("com velocity constraint")
                            
     def add_com_position_constraint(self, prog: MathematicalProgram):
         """
@@ -720,7 +720,7 @@ class SRBTrajopt:
             foot_forces_k2 = foot_forces_k1.reshape((3, len(self.foot_wrench_names)), order='F')
             foot_torques_k1 = foot_torques_k1.reshape((3, len(self.foot_wrench_names)), order='F')
             foot_torques_k2 = foot_torques_k2.reshape((3, len(self.foot_wrench_names)), order='F')
-
+    
             k1_decision_vars = {}
             k2_decision_vars = {}
 
@@ -910,6 +910,20 @@ class SRBTrajopt:
                 # print(omega_dot_kc.shape)
                 # direct collocation constraint formula
                 rhs = ((-3/(2*h))*(body_angvel_k1 - body_angvel_k2) - (1/4)*(omega_dot_k1 + omega_dot_k2))
+
+                jax_omega_dot, jax_omega_dot_grad = angvel_dircol_constraint_jax(
+                    ExtractValue(h).item(),
+                    k1_decision_vars,
+                    k2_decision_vars,
+                    self.options.foot_length,
+                    self.options.foot_width,
+                    self.I_BBo_B,
+                    self.mass,
+                    self.gravity
+                )
+                # print(ExtractGradient(omega_dot_kc - rhs))
+                # print(jax_omega_dot_grad)
+                # print(ExtractGradient(omega_dot_kc - rhs) - jax_omega_dot_grad)
                 return omega_dot_kc - rhs
 
             else:   
@@ -1021,7 +1035,7 @@ class SRBTrajopt:
                 # quat_kc 
                 quat_kc = 0.5*(quat_k1 + quat_k2) + (h/8)* \
                     (quat_dot_k1 - quat_dot_k2)
-                # normalize quat_kc
+                # brute force re-normalize quat_kc
                 quat_kc = quat_kc / np.linalg.norm(quat_kc)
                 
                 srb_kc_context = self.plant.CreateDefaultContext()
@@ -1450,11 +1464,11 @@ class SRBTrajopt:
         self.configure_snopt_solver(prog)
         # scale contact force/torque decision variables
         mg = -self.mass*self.gravity[2]
-        for i in range(len(self.contact_forces)):
-            for j in range(3):
-                for k in range(len(self.contact_forces[i][j])):
-                    prog.SetVariableScaling(self.contact_forces[i][j, k], mg)
-                    # prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
+        # for i in range(len(self.contact_forces)):
+        #     for j in range(3):
+        #         for k in range(len(self.contact_forces[i][j])):
+        #             prog.SetVariableScaling(self.contact_forces[i][j, k], mg)
+        #             # prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
 
         res = Solve(prog)
         quat = res.GetSolution(self.body_quat)
@@ -1517,7 +1531,7 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.ones((8, N))
+        in_stance = np.zeros((8, N))
         in_stance[0:4, 0:int(N/2)] = 1
         in_stance[4:8, int(N/2)-1:N] = 1
         self.in_stance = in_stance
