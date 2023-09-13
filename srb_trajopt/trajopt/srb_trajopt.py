@@ -280,10 +280,12 @@ class SRBTrajopt:
         Adds quadratic error cost on control decision variables from the reference control values
         """
         #mg = 10
-        Q_force = np.eye(3)*0.01
-        Q_force[2, 2] = 0.01
-        Q_dforce_dt = 0.01
+        Q_force = np.eye(3)*0.001
+        Q_force[2, 2] = 0.1
+        Q_force_z = np.array([Q_force[2, 2]])
+        Q_dforce_dt = 0.001
         Q_com_acc = np.eye(3)*200
+        Q_torque = np.eye(3)*2
 
         def d_force_dt_cost(x: np.ndarray):
             """
@@ -294,63 +296,66 @@ class SRBTrajopt:
             force_n /= self.mg
             force_n_minus_1 /= self.mg
             dforce_dt_cost = Q_dforce_dt * np.linalg.norm(force_n - force_n_minus_1, ord=1)
-            print(dforce_dt_cost)
             return dforce_dt_cost
 
-        def com_acc_cost(x: np.ndarray):
-            """
-            Minimize CoM acceleration
-            """
-            h, com_vel_k2, com_vel_k1 = np.split(x,
-                                                 [1, 
-                                                  1 + 3,])
+        # def com_acc_cost(x: np.ndarray):
+        #     """
+        #     Minimize CoM acceleration
+        #     """
+        #     h, com_vel_k2, com_vel_k1 = np.split(x,
+        #                                          [1, 
+        #                                           1 + 3,])
 
-            com_acc = (com_vel_k2 - com_vel_k1) / h
-            return 0.5 * (com_acc).T @ Q_com_acc @ (com_acc)
+        #     com_acc = (com_vel_k2 - com_vel_k1) / h
+        #     return 0.5 * (com_acc).T @ Q_com_acc @ (com_acc)
 
-        for n in range(1, self.N-1):
-            if self.in_stance[:, n].any() and self.in_stance[:, n-1].any():
-                com_acc_vars = np.concatenate(
-                    ([self.h[n]],
-                    self.com_dot[:, n],
-                    self.com_dot[:, n-1])
-                )
-                prog.AddCost(
-                    com_acc_cost,
-                    vars=com_acc_vars
-                )
-
-        # for n in range(self.N):
-        #     contacts = self.in_stance[:, n]
-        #     num_contacts = np.sum(contacts)
-        #     desired_force_per_contact = 1 / num_contacts      
-        #     for i in range(len(self.contact_forces)):
-
-        #         prog.AddQuadraticErrorCost(
-        #             Q=Q_force,
-        #             x_desired=np.array([0., 0., desired_force_per_contact]),
-        #             vars=self.contact_forces[i][:, n]
+        # for n in range(1, self.N-1):
+        #     if self.in_stance[:, n].any() and self.in_stance[:, n-1].any():
+        #         com_acc_vars = np.concatenate(
+        #             ([self.h[n]],
+        #             self.com_dot[:, n],
+        #             self.com_dot[:, n-1])
+        #         )
+        #         prog.AddCost(
+        #             com_acc_cost,
+        #             vars=com_acc_vars
         #         )
 
-        #     if n > 0:
-        #         for i in range(8):
-        #             if self.in_stance[i, n] and self.in_stance[i, n-1]:
-        #                 d_force_dt_vars = np.array(
-        #                     [self.contact_forces[i][2, n], 
-        #                         self.contact_forces[i][2, n-1]]
-        #                 )
-        #                 # com_acc_vars = np.concatenate(
-        #                 #     [self.contact_forces[i][:, n],
-        #                 #     self.contact_forces[i][:, n-1]]
-        #                 # )
-        #                 # prog.AddCost(
-        #                 #     com_acc_cost,
-        #                 #     vars=com_acc_vars
-        #                 # )
-        #                 prog.AddCost(
-        #                     d_force_dt_cost,
-        #                     vars=d_force_dt_vars
-        #                 )
+        for n in range(self.N):
+            contacts = self.in_stance[:, n]
+            num_contacts = np.sum(contacts)
+            desired_force_per_contact = self.mg / num_contacts     
+            for i in range(len(self.contact_forces)):
+                prog.AddQuadraticErrorCost(
+                    Q=Q_force_z,
+                    x_desired=np.array([desired_force_per_contact]),
+                    vars=[self.contact_forces[i][2, n]]
+                )
+                # prog.AddQuadraticErrorCost(
+                #     Q=Q_torque,
+                #     x_desired=np.array([0., 0., 0.]),
+                #     vars=self.contact_torques[i][:, n]
+                # )
+
+            # if n > 0:
+            #     for i in range(8):
+            #         if self.in_stance[i, n] and self.in_stance[i, n-1]:
+            #             d_force_dt_vars = np.array(
+            #                 [self.contact_forces[i][2, n], 
+            #                     self.contact_forces[i][2, n-1]]
+            #             )
+            #             # com_acc_vars = np.concatenate(
+            #             #     [self.contact_forces[i][:, n],
+            #             #     self.contact_forces[i][:, n-1]]
+            #             # )
+            #             # prog.AddCost(
+            #             #     com_acc_cost,
+            #             #     vars=com_acc_vars
+            #             # )
+            #             prog.AddCost(
+            #                 d_force_dt_cost,
+            #                 vars=d_force_dt_vars
+            #             )
 
     ################################## 
     # Trajopt constraint definitions #
@@ -1364,7 +1369,7 @@ class SRBTrajopt:
         self.set_trajopt_initial_guess(prog)
 
         ### Add Costs ###
-        # self.add_com_position_cost(prog)
+        self.add_com_position_cost(prog)
         self.add_control_cost(prog)
 
         ### Add Constraints ###

@@ -19,7 +19,7 @@ class SRBTrajoptOptions:
 
         # max normalized Z axis grf 
         self._g = 9.81
-        self._max_z_grf = self._mass*9.81*3 
+        self._max_z_grf = self._mass*9.81*5
         self._min_com_height = 0.6
 
         # trajopt parameters
