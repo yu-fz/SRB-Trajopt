@@ -23,7 +23,7 @@ class SRBTrajoptOptions:
         self._min_com_height = 0.6
 
         # trajopt parameters
-        self.N = 50 # number of knot points
+        self.N = 40 # number of knot points
         self.T = 3 # total time
 
     @property
