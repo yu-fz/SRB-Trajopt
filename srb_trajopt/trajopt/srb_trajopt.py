@@ -285,13 +285,13 @@ class SRBTrajopt:
         """
         #mg = 10
         Q_force = np.eye(3)*0.00001
-        Q_force[2, 2] = 0.0005
+        Q_force[2, 2] = 0.00003
         # Q_force_z = np.array([Q_force[2, 2]])
-        Q_dforce_dt = 0.000005
+        Q_dforce_dt = 0.00000
         Q_com_acc = np.eye(3)*200
         Q_torque = np.eye(3)*2
 
-        gamma_dfrc_dt_cost = 0.98
+        gamma_dfrc_dt_cost = 0.90
         def d_force_dt_cost(x: np.ndarray, n: int):
             """
             Computes the cost on the rate of change of foot forces
@@ -326,7 +326,7 @@ class SRBTrajopt:
         #             vars=com_acc_vars
         #         )
 
-        gamma_frc_cost = 0.98
+        gamma_frc_cost = 0.90
         for n in range(self.N):
             contacts = self.in_stance[:, n]
             num_contacts = np.sum(contacts)
@@ -339,25 +339,25 @@ class SRBTrajopt:
                         vars=self.contact_forces[i][:, n]
                     )
 
-            if n > 0:
-                for i in range(8):
-                    if self.in_stance[i, n] and self.in_stance[i, n-1]:
-                        d_force_dt_vars = np.array(
-                            [self.contact_forces[i][2, n], 
-                                self.contact_forces[i][2, n-1]]
-                        )
-                        # com_acc_vars = np.concatenate(
-                        #     [self.contact_forces[i][:, n],
-                        #     self.contact_forces[i][:, n-1]]
-                        # )
-                        # prog.AddCost(
-                        #     com_acc_cost,
-                        #     vars=com_acc_vars
-                        # )
-                        prog.AddCost(
-                            partial(d_force_dt_cost, n=n),
-                            vars=d_force_dt_vars
-                        )
+            # if n > 0:
+            #     for i in range(8):
+            #         if self.in_stance[i, n] and self.in_stance[i, n-1]:
+            #             d_force_dt_vars = np.array(
+            #                 [self.contact_forces[i][2, n], 
+            #                     self.contact_forces[i][2, n-1]]
+            #             )
+            #             # com_acc_vars = np.concatenate(
+            #             #     [self.contact_forces[i][:, n],
+            #             #     self.contact_forces[i][:, n-1]]
+            #             # )
+            #             # prog.AddCost(
+            #             #     com_acc_cost,
+            #             #     vars=com_acc_vars
+            #             # )
+            #             prog.AddCost(
+            #                 partial(d_force_dt_cost, n=n),
+            #                 vars=d_force_dt_vars
+            #             )
 
     ################################## 
     # Trajopt constraint definitions #
@@ -1490,12 +1490,12 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.zeros((8, N))
-        in_stance[0:4, 0:int(N/2)] = 1
-        in_stance[4:8, int(N/2)-1:N] = 1
+        # in_stance = np.zeros((8, N))
+        # in_stance[0:4, 0:int(N/2)] = 1
+        # in_stance[4:8, int(N/2)-1:N] = 1
 
         
-        # in_stance = np.ones((8, N))
+        in_stance = np.ones((8, N))
         # in_stance[0:4, int(N/3):int(3*N/4)] = 0
         # in_stance[4:8, int(N/3):int(3*N/4)] = 0
 
