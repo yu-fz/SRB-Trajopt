@@ -224,6 +224,10 @@ class SRBTrajopt:
                         self.contact_forces[i][2, n],
                         self.mg/len(self.contact_forces)
                     )
+                    prog.SetInitialGuess(
+                        self.contact_forces[i][:2, n],
+                        np.array([0, 0])
+                    )
                 else:
                     # set foot force guess
                     prog.SetInitialGuess(
@@ -280,10 +284,10 @@ class SRBTrajopt:
         Adds quadratic error cost on control decision variables from the reference control values
         """
         #mg = 10
-        Q_force = np.eye(3)*0.001
-        Q_force[2, 2] = 0.1
-        Q_force_z = np.array([Q_force[2, 2]])
-        Q_dforce_dt = 0.001
+        Q_force = np.eye(3)*0.0001
+        Q_force[2, 2] = 0.0001
+        # Q_force_z = np.array([Q_force[2, 2]])
+        Q_dforce_dt = 0.0000005
         Q_com_acc = np.eye(3)*200
         Q_torque = np.eye(3)*2
 
@@ -293,8 +297,8 @@ class SRBTrajopt:
             """
             force_n, force_n_minus_1 = np.split(x, 
                                                 [1,])
-            force_n /= self.mg
-            force_n_minus_1 /= self.mg
+            # force_n /= self.mg
+            # force_n_minus_1 /= self.mg
             dforce_dt_cost = Q_dforce_dt * np.linalg.norm(force_n - force_n_minus_1, ord=1)
             return dforce_dt_cost
 
@@ -327,9 +331,9 @@ class SRBTrajopt:
             desired_force_per_contact = self.mg / num_contacts     
             for i in range(len(self.contact_forces)):
                 prog.AddQuadraticErrorCost(
-                    Q=Q_force_z,
-                    x_desired=np.array([desired_force_per_contact]),
-                    vars=[self.contact_forces[i][2, n]]
+                    Q=Q_force,
+                    x_desired=np.array([0., 0., self.mg/num_contacts]),
+                    vars=self.contact_forces[i][:, n]
                 )
                 # prog.AddQuadraticErrorCost(
                 #     Q=Q_torque,
@@ -337,25 +341,25 @@ class SRBTrajopt:
                 #     vars=self.contact_torques[i][:, n]
                 # )
 
-            # if n > 0:
-            #     for i in range(8):
-            #         if self.in_stance[i, n] and self.in_stance[i, n-1]:
-            #             d_force_dt_vars = np.array(
-            #                 [self.contact_forces[i][2, n], 
-            #                     self.contact_forces[i][2, n-1]]
-            #             )
-            #             # com_acc_vars = np.concatenate(
-            #             #     [self.contact_forces[i][:, n],
-            #             #     self.contact_forces[i][:, n-1]]
-            #             # )
-            #             # prog.AddCost(
-            #             #     com_acc_cost,
-            #             #     vars=com_acc_vars
-            #             # )
-            #             prog.AddCost(
-            #                 d_force_dt_cost,
-            #                 vars=d_force_dt_vars
-            #             )
+        #     if n > 0:
+        #         for i in range(8):
+        #             if self.in_stance[i, n] and self.in_stance[i, n-1]:
+        #                 d_force_dt_vars = np.array(
+        #                     [self.contact_forces[i][2, n], 
+        #                         self.contact_forces[i][2, n-1]]
+        #                 )
+        #                 # com_acc_vars = np.concatenate(
+        #                 #     [self.contact_forces[i][:, n],
+        #                 #     self.contact_forces[i][:, n-1]]
+        #                 # )
+        #                 # prog.AddCost(
+        #                 #     com_acc_cost,
+        #                 #     vars=com_acc_vars
+        #                 # )
+        #                 prog.AddCost(
+        #                     d_force_dt_cost,
+        #                     vars=d_force_dt_vars
+        #                 )
 
     ################################## 
     # Trajopt constraint definitions #
@@ -1369,7 +1373,7 @@ class SRBTrajopt:
         self.set_trajopt_initial_guess(prog)
 
         ### Add Costs ###
-        self.add_com_position_cost(prog)
+        # self.add_com_position_cost(prog)
         self.add_control_cost(prog)
 
         ### Add Constraints ###
@@ -1412,10 +1416,8 @@ class SRBTrajopt:
         self.configure_snopt_solver(prog)
         # scale contact force/torque decision variables
         for i in range(len(self.contact_forces)):
-            for j in range(3):
-                for k in range(len(self.contact_forces[i][j])):
-                    prog.SetVariableScaling(self.contact_forces[i][j, k], self.mg)
-                    # prog.SetVariableScaling(self.contact_torques[i][j, k], mg)
+            for k in range(len(self.contact_forces[i][0, :])):
+                prog.SetVariableScaling(self.contact_forces[i][2, k], self.mg)
 
         res = Solve(prog)
         quat = res.GetSolution(self.body_quat)
@@ -1436,6 +1438,8 @@ class SRBTrajopt:
         right_foot_z_frc_sum = []
         left_foot_torque_z_sum = []
         right_foot_torque_z_sum = []
+        right_foot_x_frc_sum = []
+        right_foot_y_frc_sum = []
         # for i in range(4):
         #     contact_frc_soln = res.GetSolution(self.contact_forces[i])
         for i in range(self.N-1):
@@ -1445,26 +1449,36 @@ class SRBTrajopt:
                 contact_frc_soln = res.GetSolution(self.contact_forces[j])
                 contact_torque_soln = res.GetSolution(self.contact_torques[j])
                 contact_frc_sum += contact_frc_soln[2, i]
-                contact_trq_sum += contact_torque_soln[1, i]
+                contact_trq_sum += contact_torque_soln[2, i]
             left_foot_torque_z_sum.append(contact_trq_sum)
             left_foot_z_frc_sum.append(contact_frc_sum)
             
         for i in range(self.N-1):
             contact_frc_sum = 0
             contact_trq_sum = 0
+            contact_frc_sum_x = 0
+            contact_frc_sum_y = 0
             for j in range(4, 8):
                 contact_frc_soln = res.GetSolution(self.contact_forces[j])
                 contact_torque_soln = res.GetSolution(self.contact_torques[j])
                 contact_frc_sum += contact_frc_soln[2, i]
-                contact_trq_sum += contact_torque_soln[1, i]
+                contact_frc_sum_x += contact_frc_soln[0, i]
+                contact_frc_sum_y += contact_frc_soln[1, i]
+                contact_trq_sum += contact_torque_soln[2, i]
             right_foot_z_frc_sum.append(contact_frc_sum)
             right_foot_torque_z_sum.append(contact_trq_sum)
+            right_foot_x_frc_sum.append(contact_frc_sum_x)
+            right_foot_y_frc_sum.append(contact_frc_sum_y)
+
         
         time = np.cumsum(np.hstack((0, res.GetSolution(self.h))))
         plt.plot(time, res.GetSolution(self.com)[2, :])
         plt.show()
         plt.plot(time[:-1], left_foot_z_frc_sum)
         plt.plot(time[:-1], right_foot_z_frc_sum)
+        plt.show()
+        plt.plot(time[:-1], right_foot_x_frc_sum)
+        plt.plot(time[:-1], right_foot_y_frc_sum)
         plt.show()
         plt.plot(time[:-1], left_foot_torque_z_sum)
         plt.plot(time[:-1], right_foot_torque_z_sum)
@@ -1478,14 +1492,14 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.zeros((8, N))
-        in_stance[0:4, 0:int(N/2)] = 1
-        in_stance[4:8, int(N/2)-1:N] = 1
+        # in_stance = np.zeros((8, N))
+        # in_stance[0:4, 0:int(N/2)] = 1
+        # in_stance[4:8, int(N/2)-1:N] = 1
 
         
-        # in_stance = np.ones((8, N))
-        # in_stance[0:4, int(N/3):int(3*N/4)] = 0
-        # in_stance[4:8, int(N/3):int(3*N/4)] = 0
+        in_stance = np.ones((8, N))
+        in_stance[0:4, int(N/3):int(3*N/4)] = 0
+        in_stance[4:8, int(N/3):int(3*N/4)] = 0
 
         self.in_stance = in_stance
 
