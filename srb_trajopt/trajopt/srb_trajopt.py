@@ -105,6 +105,9 @@ class SRBTrajopt:
                                       self.ad_srb_diagram.CreateDefaultContext())
         self.ad_simulator.Initialize()
         self.I_BBo_B = self.srb_body.default_rotational_inertia().CopyToFullMatrix3()
+        # discount factor for cost function weighting
+        self.discount = np.exp(-self.options.N*0.002)
+
 
     @property
     def plant(self):
@@ -262,9 +265,9 @@ class SRBTrajopt:
         Adds quadratic error cost on CoM postion decision variables from the reference CoM position
         """
         Q = np.eye(3)
-        Q[0, 0] = 0.001
-        Q[1, 1] = 0.001
-        Q[2, 2] = 0.005
+        Q[0, 0] = 0.01
+        Q[1, 1] = 0.01
+        Q[2, 2] = 0.1
         x_des = np.array([0., 0., 1.])
         for n in range(self.N):
             prog.AddQuadraticErrorCost(
@@ -279,19 +282,20 @@ class SRBTrajopt:
         """
         pass 
 
-    def add_control_cost(self, prog: MathematicalProgram):
+    def add_control_costs(self, prog: MathematicalProgram):
         """
         Adds quadratic error cost on control decision variables from the reference control values
         """
         #mg = 10
-        Q_force = np.eye(3)*0.00001
-        Q_force[2, 2] = 0.00003
+        cost_scale = 1/(self.options.max_z_grf**2)
+        Q_force = np.eye(3)*2*cost_scale
+        Q_force[2, 2] = 5*cost_scale
         # Q_force_z = np.array([Q_force[2, 2]])
-        Q_dforce_dt = 0.00000
-        Q_com_acc = np.eye(3)*200
+        Q_dforce_dt = 0.001
+        Q_com_acc = np.eye(3)*3000
         Q_torque = np.eye(3)*2
 
-        gamma_dfrc_dt_cost = 0.90
+        gamma_dfrc_dt_cost = 1
         def d_force_dt_cost(x: np.ndarray, n: int):
             """
             Computes the cost on the rate of change of foot forces
@@ -299,9 +303,12 @@ class SRBTrajopt:
             force_n, force_n_minus_1 = np.split(x, 
                                                 [1,])
             
-            discount = np.power(gamma_dfrc_dt_cost, n)
+            discount = 1
             dforce_dt_cost = discount * Q_dforce_dt * np.linalg.norm(force_n - force_n_minus_1, ord=1)
-            return dforce_dt_cost
+            dforce_dt_cost = Q_dforce_dt * np.abs(force_n - force_n_minus_1)
+            # dforce_dt_cost = (1/(np.exp(-dforce_dt_cost*0.003))) - 1
+            print(f"n: {n}, dforce_dt_cost: {dforce_dt_cost}")
+            return dforce_dt_cost[0]
 
         # def com_acc_cost(x: np.ndarray):
         #     """
@@ -326,7 +333,7 @@ class SRBTrajopt:
         #             vars=com_acc_vars
         #         )
 
-        gamma_frc_cost = 0.90
+        gamma_frc_cost = 1
         for n in range(self.N):
             contacts = self.in_stance[:, n]
             num_contacts = np.sum(contacts)
@@ -341,23 +348,23 @@ class SRBTrajopt:
 
             # if n > 0:
             #     for i in range(8):
-            #         if self.in_stance[i, n] and self.in_stance[i, n-1]:
-            #             d_force_dt_vars = np.array(
-            #                 [self.contact_forces[i][2, n], 
-            #                     self.contact_forces[i][2, n-1]]
-            #             )
-            #             # com_acc_vars = np.concatenate(
-            #             #     [self.contact_forces[i][:, n],
-            #             #     self.contact_forces[i][:, n-1]]
-            #             # )
-            #             # prog.AddCost(
-            #             #     com_acc_cost,
-            #             #     vars=com_acc_vars
-            #             # )
-            #             prog.AddCost(
-            #                 partial(d_force_dt_cost, n=n),
-            #                 vars=d_force_dt_vars
-            #             )
+            #         #if self.in_stance[i, n] and self.in_stance[i, n-1]:
+            #         d_force_dt_vars = np.array(
+            #             [self.contact_forces[i][2, n], 
+            #                 self.contact_forces[i][2, n-1]]
+            #         )
+            #         # com_acc_vars = np.concatenate(
+            #         #     [self.contact_forces[i][:, n],
+            #         #     self.contact_forces[i][:, n-1]]
+            #         # )
+            #         # prog.AddCost(
+            #         #     com_acc_cost,
+            #         #     vars=com_acc_vars
+            #         # )
+            #         prog.AddCost(
+            #             partial(d_force_dt_cost, n=n),
+            #             vars=d_force_dt_vars
+            #         )
 
     ################################## 
     # Trajopt constraint definitions #
@@ -1371,8 +1378,8 @@ class SRBTrajopt:
         self.set_trajopt_initial_guess(prog)
 
         ### Add Costs ###
-        # self.add_com_position_cost(prog)
-        self.add_control_cost(prog)
+        self.add_com_position_cost(prog)
+        self.add_control_costs(prog)
 
         ### Add Constraints ###
         self.add_time_scaling_constraint(prog)
@@ -1398,13 +1405,26 @@ class SRBTrajopt:
         prog.SetSolverOption(
             snopt, "Major Iterations Limit", 200 
         )
-        prog.SetSolverOption(snopt, "Major Feasibility Tolerance", 5e-6)
-        prog.SetSolverOption(snopt, "Major Optimality Tolerance", 1e-3)
+        prog.SetSolverOption(snopt, "Major Feasibility Tolerance", 5e-5)
+        prog.SetSolverOption(snopt, "Major Optimality Tolerance", 5e-3)
         prog.SetSolverOption(snopt, "Superbasics limit", 2000)
         prog.SetSolverOption(snopt, "Major print level", 11)
 
-        prog.SetSolverOption(snopt, "Linesearch tolerance", 0.99)
+        prog.SetSolverOption(snopt, "Linesearch tolerance", 0.2)
         prog.SetSolverOption(snopt, 'Print file', 'snopt.out')
+
+    def make_solution_trajectory(self, 
+                                 srb_body_quat_soln: np.ndarray,
+                                 srb_body_com_pos_soln: np.ndarray,
+                                 p_W_LF_soln: np.ndarray,
+                                 p_W_RF_soln: np.ndarray,):
+        """
+        Turns the discrete decisision variable solution vectors to a
+        continuous trajectory
+        """
+
+        pass 
+
 
     def solve_trajopt(self,):
         """
@@ -1490,12 +1510,12 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        # in_stance = np.zeros((8, N))
-        # in_stance[0:4, 0:int(N/2)] = 1
-        # in_stance[4:8, int(N/2)-1:N] = 1
+        in_stance = np.zeros((8, N))
+        in_stance[0:4, 0:int(N/2)] = 1
+        in_stance[4:8, int(N/2)-1:N] = 1
 
         
-        in_stance = np.ones((8, N))
+        # in_stance = np.ones((8, N))
         # in_stance[0:4, int(N/3):int(3*N/4)] = 0
         # in_stance[4:8, int(N/3):int(3*N/4)] = 0
 
