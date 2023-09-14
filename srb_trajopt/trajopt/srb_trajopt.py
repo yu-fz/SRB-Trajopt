@@ -1,7 +1,10 @@
+from dataclasses import dataclass
+from functools import partial
+
+
 from options import SRBTrajoptOptions
 from .srb_builder import SRBBuilder
-
-from functools import partial
+from trajectory_utils import *
 
 from pydrake.all import (
     PiecewisePolynomial,
@@ -19,6 +22,8 @@ from pydrake.all import (
     Context,
     Simulator_,
     RotationMatrix_,
+    PiecewisePolynomial,
+    PiecewisePose,
     PiecewiseQuaternionSlerp,
     PiecewiseQuaternionSlerp_,
     Quaternion,
@@ -89,6 +94,23 @@ from .autodiffxd_utils import (
 )
 
 import matplotlib.pyplot as plt
+@dataclass
+class SRBTrajoptInitialGuess:
+    def __init__(self,
+                 com_orientation_guess: np.ndarray = None,
+                 com_pos_guess: np.ndarray = None,
+                 com_angular_vel_guess: np.ndarray = None,
+                 com_vel_guess: np.ndarray = None,
+                 left_foot_contact_guess: np.ndarray = None,
+                 right_foot_contact_guess: np.ndarray = None,
+                 ) -> None:
+        """
+        
+        """
+        def __post_init__(self):
+            # Set default values for any None arguments and alert the user
+            if self.label is None:
+                self.label = "Unknown"
 class SRBTrajopt:
     def __init__(self, 
                  options: SRBTrajoptOptions,
@@ -105,9 +127,6 @@ class SRBTrajopt:
                                       self.ad_srb_diagram.CreateDefaultContext())
         self.ad_simulator.Initialize()
         self.I_BBo_B = self.srb_body.default_rotational_inertia().CopyToFullMatrix3()
-        # discount factor for cost function weighting
-        self.discount = np.exp(-self.options.N*0.002)
-
 
     @property
     def plant(self):
@@ -1413,19 +1432,6 @@ class SRBTrajopt:
         prog.SetSolverOption(snopt, "Linesearch tolerance", 0.2)
         prog.SetSolverOption(snopt, 'Print file', 'snopt.out')
 
-    def make_solution_trajectory(self, 
-                                 srb_body_quat_soln: np.ndarray,
-                                 srb_body_com_pos_soln: np.ndarray,
-                                 p_W_LF_soln: np.ndarray,
-                                 p_W_RF_soln: np.ndarray,):
-        """
-        Turns the discrete decisision variable solution vectors to a
-        continuous trajectory
-        """
-
-        pass 
-
-
     def solve_trajopt(self,):
         """
         Solve the completed optimization problem with all constraints and costs defined
@@ -1438,7 +1444,24 @@ class SRBTrajopt:
                 prog.SetVariableScaling(self.contact_forces[i][2, k], self.mg)
 
         res = Solve(prog)
-        quat = res.GetSolution(self.body_quat)
+        if res.is_success():
+            # Make solution trajectories
+            timesteps_soln = np.cumsum(np.hstack((0, res.GetSolution(self.h))))
+            quat = res.GetSolution(self.body_quat)
+            com_pos_soln = res.GetSolution(self.com)
+            com_dot_soln = res.GetSolution(self.com_dot)
+            p_W_LF_soln = res.GetSolution(self.p_W_LF)
+            p_W_RF_soln = res.GetSolution(self.p_W_RF)
+
+            trajectories = make_solution_trajectory(
+                timesteps_soln,
+                quat,
+                com_pos_soln,
+                com_dot_soln,
+                p_W_LF_soln,
+                p_W_RF_soln,
+            )
+
         print(res.is_success())
         print(res.get_solver_details().info)
         print(f"solution cost: {res.get_optimal_cost()}")
