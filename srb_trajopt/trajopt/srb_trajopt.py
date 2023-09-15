@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field
-from functools import partial
 
+from functools import partial
 
 from options import SRBTrajoptOptions
 from .srb_builder import SRBBuilder
+from .initial_guess import SRBTrajoptInitialGuess
 from trajectory_utils import *
 
 from pydrake.all import (
@@ -94,98 +94,12 @@ from .autodiffxd_utils import (
 )
 
 import matplotlib.pyplot as plt
-@dataclass
-class SRBTrajoptInitialGuess:
-    """
-    Container for storing the initial guess for the SRB trajectory. 
-    The contact mode sequence defined by the left and right foot contacts 
-    are required for non-contact implicit optimization.
 
-    While it is possible for a "foot" of the SRB model to contact the ground with less 
-    than the total number of contact points per foot, left and right foot contact sequences 
-    will assume that all contact points of the foot are in contact with the ground if a 1 is given
-    in the contact sequence, not in contact if a 0 is given instead.
 
-    Optional arguments for the SRB states will use default values if not provided.
-    Args:
-        left_foot_contacts: binary vector of left foot contact status
-        right_foot_contacts: binary vector of right foot contact status
-        com_orientation_guess: initial guess for the CoM orientation of shape (4,N)
-        com_pos_guess: initial guess for the CoM position of shape (3,N)
-        com_angular_vel_guess: initial guess for the CoM angular velocity of shape (3,N)
-        com_vel_guess: initial guess for the CoM velocity of shape (3,N)
-        p_W_L_guess: initial guess for the left foot position of shape (3,N)
-    """
-    left_foot_contacts: np.ndarray
-    right_foot_contacts: np.ndarray
-    N: int
-    T: float
-    com_orientation_guess = None
-    com_position_guess = None
-    com_angular_velocity_guess = None
-    com_velocity_guess = None
-    p_W_LF_guess = None
-    p_W_RF_guess = None
-
-    def __init__(self, left_foot_contacts, right_foot_contacts, N, T):
-        # initialize required fields
-        self.left_foot_contacts = left_foot_contacts
-        self.right_foot_contacts = right_foot_contacts
-        self.N = N
-        self.T = T
-        # Set default values for optional fields
-        self._default_quaternion = np.array([[1., 0., 0., 0.]])
-        self._default_position = np.array([[0., 0., 1.]])
-        self._default_angular_velocity = np.array([[0., 0., 0.]])
-        self._default_velocity = np.array([[0., 0., 0.]])
-        self._default_p_W_LF = np.array([[0., 0.1, 0.]])
-        self._default_p_W_RF = np.array([[0., -0.1, 0.]])
-
-        self.com_orientation_guess = np.repeat(self._default_quaternion.T, self.N, axis=1)
-        self.com_position_guess = np.repeat(self._default_position.T, self.N, axis=1)
-        self.com_angular_velocity_guess = np.repeat(self._default_angular_velocity.T, self.N, axis=1)
-        self.com_velocity_guess = np.repeat(self._default_velocity.T, self.N, axis=1)
-        self.p_W_LF_guess = np.repeat(self._default_p_W_LF.T, self.N, axis=1)
-        self.p_W_RF_guess = np.repeat(self._default_p_W_RF.T, self.N, axis=1)
-
-    def __post_init__(self):
-        ""
-        input_arg_lengths = []
-
-        if not np.all(np.isin(self.left_foot_contacts, [0, 1])) or \
-            not np.all(np.isin(self.right_foot_contacts, [0, 1])):
-            raise ValueError("left/right foot contact sequences must be a binary vector")
-
-    def set_com_orientation_guess(self, com_orientation_guess: np.ndarray):
-        pass 
-
-    #     if com_orientation_guess is not None:
-    #         assert com_orientation_guess.shape[0] == 4, "com_orientation_guess must be a 4D vector"
-        
-    #         for quat in com_orientation_guess.T:
-    #             assert np.linalg.norm(quat) == 1, "com_orientation_guess must be a unit quaternion"
-    #             assert np.allclose(np.linalg.norm(quat), 1, atol=1e-3), "com_orientation_guess must be a unit quaternion"
-
-    #     if com_pos_guess is not None:
-    #         assert com_pos_guess.shape[0] == 3, "com_pos_guess must be a 3D vector"
-
-    #     if com_angular_vel_guess is not None:
-    #         assert com_angular_vel_guess.shape[0] == 3, "com_angular_vel_guess must be a 3D vector"
-        
-    #     if com_vel_guess is not None:
-    #         assert com_vel_guess.shape[0] == 3, "com_vel_guess must be a 3D vector"
-        
-    #     if p_W_L_guess is not None:
-    #         assert p_W_L_guess.shape[0] == 3, "p_W_L_guess must be a 3D vector"
-        
-    #     if p_W_R_guess is not None:
-    #         assert p_W_R_guess.shape[0] == 3, "p_W_R_guess must be a 3D vector"
-    #     # Set default values for any None arguments and alert the user
-    #     if self.label is None:
-    #         self.label = "Unknown"
 class SRBTrajopt:
     def __init__(self, 
                  options: SRBTrajoptOptions,
+                 initial_guess: SRBTrajoptInitialGuess,
                  headless: bool = False) -> None:
         self.options = options
         srb_builder = SRBBuilder(self.options, headless)
