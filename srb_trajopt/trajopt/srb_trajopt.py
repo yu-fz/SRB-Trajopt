@@ -5,6 +5,7 @@ from options import SRBTrajoptOptions
 from .srb_builder import SRBBuilder
 from .initial_guess import SRBTrajoptInitialGuess
 from trajectory_utils import *
+from visualization import render_SRB_trajectory
 
 from pydrake.all import (
     PiecewisePolynomial,
@@ -92,6 +93,7 @@ from .autodiffxd_utils import (
     extract_ad_value_and_gradient,
     multiply_and_sum
 )
+
 
 import matplotlib.pyplot as plt
 
@@ -1439,7 +1441,8 @@ class SRBTrajopt:
             com_dot_soln = res.GetSolution(self.com_dot)
             p_W_LF_soln = res.GetSolution(self.p_W_LF)
             p_W_RF_soln = res.GetSolution(self.p_W_RF)
-
+            
+            # interpolate discrete solutions to get continuous trajectories
             trajectories = make_solution_trajectory(
                 timesteps_soln,
                 quat,
@@ -1447,6 +1450,13 @@ class SRBTrajopt:
                 com_dot_soln,
                 p_W_LF_soln,
                 p_W_RF_soln,
+            )
+            
+            # render the solution
+            render_SRB_trajectory(
+                self.srb_diagram,
+                timesteps_soln[-1],
+                trajectories,
             )
 
         print(res.is_success())
@@ -1498,7 +1508,6 @@ class SRBTrajopt:
             right_foot_x_frc_sum.append(contact_frc_sum_x)
             right_foot_y_frc_sum.append(contact_frc_sum_y)
 
-        
         time = np.cumsum(np.hstack((0, res.GetSolution(self.h))))
         plt.plot(time, res.GetSolution(self.com)[2, :])
         plt.show()
