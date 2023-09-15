@@ -101,6 +101,7 @@ class SRBTrajopt:
                  options: SRBTrajoptOptions,
                  initial_guess: SRBTrajoptInitialGuess,
                  headless: bool = False) -> None:
+        
         self.options = options
         srb_builder = SRBBuilder(self.options, headless)
         self.srb_diagram, self.ad_srb_diagram = srb_builder.create_srb_diagram()
@@ -113,6 +114,7 @@ class SRBTrajopt:
                                       self.ad_srb_diagram.CreateDefaultContext())
         self.ad_simulator.Initialize()
         self.I_BBo_B = self.srb_body.default_rotational_inertia().CopyToFullMatrix3()
+        self.gravity = np.array([0., 0., -9.81])
 
     @property
     def plant(self):
@@ -156,7 +158,6 @@ class SRBTrajopt:
         self.N = self.options.N
         self.T = self.options.T
         self.mass = self.options.mass
-        self.gravity = np.array([0., 0., -9.81])
         self.mg = -self.mass * self.gravity[2]
         ###################################
         # define state decision variables #
@@ -183,7 +184,7 @@ class SRBTrajopt:
                                   "right_front_right",
                                   "right_back_left",
                                   "right_back_right"]
-        foot_names = ["left", "right"]
+
         contact_forces = [
             prog.NewContinuousVariables(3, self.N, f"foot_{name}_force") for name in self.foot_wrench_names
         ]
