@@ -1,0 +1,685 @@
+<?xml version='1.0'?>
+<sdf xmlns:drake="http://drake.mit.edu" version="1.9">
+<model name="digit_right_leg">
+<link name="base"></link>
+<link name="hip_roll">
+    <pose>0 0 0 0 0 0</pose>
+    <inertial>
+        <pose>-0.001967 -0.000244 0.031435 0 0 0</pose>
+        <mass>0.915088</mass>
+        <inertia>
+        <ixx>0.001017</ixx>
+        <iyy>0.001148</iyy>
+        <izz>0.000766</izz>
+        <ixy>3e-06</ixy>
+        <ixz>1.3e-05</ixz>
+        <iyz>4e-06</iyz>
+        </inertia>
+    </inertial>
+    <visual name="hip_roll_visual">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/hip-yaw-housing-mirror.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="hip_yaw">
+    <pose>0 0 0 0 0 0 </pose>
+    <inertial>
+        <pose>1e-05 0.001945 0.042033 0 0 0</pose>
+        <mass>0.818753</mass>
+        <inertia>
+        <ixx>0.001627</ixx>
+        <iyy>0.001929</iyy>
+        <izz>0.00077</izz>
+        <ixy>1e-06</ixy>
+        <ixz>2e-06</ixz>
+        <iyz>-5.3e-05</iyz>
+        </inertia>
+    </inertial>
+    <visual name="hip_yaw_visual">
+        <pose relative_to="hip_yaw_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh>
+            <uri>package://drail_drake/model_files/digit/visual/hip-pitch-housing-mirror.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="hip_pitch">
+    <pose relative_to="hip_pitch_joint">0 0 0 0 -1.57 0</pose>
+    <inertial>
+        <pose>0.060537 -0.000521 -0.038857 0 0 0</pose>
+        <mass>6.244279</mass>
+        <inertia>
+        <ixx>0.011533</ixx>
+        <iyy>0.033345</iyy>
+        <izz>0.033958</izz>
+        <ixy>0.000171</ixy>
+        <ixz>0.000148</ixz>
+        <iyz>-0.000178</iyz>
+        </inertia>
+    </inertial>
+    <visual name="hip_pitch_visual">
+        <pose relative_to="hip_pitch_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/hip-pitch-mirror.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="achilles_rod">
+    <pose relative_to="hip_pitch">0 0 0 -1.5708 0 0</pose>
+    <inertial>
+        <pose>0.2506 0 0 0 0 0</pose>
+        <mass>0.178148</mass>
+        <inertia>
+            <ixx>3e-06</ixx>
+            <iyy>0.004501</iyy>
+            <izz>0.004501</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+        </inertia>
+    </inertial>
+    <visual name="achilles_rod_visual">
+        <pose relative_to="achilles_rod">0 0 0 0 0 0</pose>
+        <geometry>
+            <mesh>
+                <uri>package://drail_drake/model_files/digit/visual/achilles-rod.obj</uri>
+            </mesh>
+        </geometry>
+    </visual>
+    <!-- <visual name="heel_spring_indicator">
+        <pose relative_to="achilles_rod">0.5 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.01 0.01 0.01</size>
+          </box>
+        </geometry>
+    </visual> -->
+</link>
+<link name="knee">
+    <pose relative_to="knee_joint">0 0 0 0 -1.57 0</pose>
+    <inertial>
+        <pose>0.045641 -0.042154 0.001657 0 0 0</pose>
+        <mass>1.227077</mass>
+        <inertia>
+        <ixx>0.002643</ixx>
+        <iyy>0.005098</iyy>
+        <izz>0.007019</izz>
+        <ixy>0.001832</ixy>
+        <ixz>6.6e-05</ixz>
+        <iyz>-4.5e-05</iyz>
+        </inertia>
+    </inertial>
+    <visual name="knee_visual">
+        <pose relative_to="knee_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/knee-mirror.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="shin">
+    <pose relative_to="knee_to_shin_joint">0 0 0 0 -1.57 0</pose>
+    <inertial>
+        <pose>0.174265 -0.010265 0.00107 0 0 0</pose>
+        <mass>0.895793</mass>
+        <inertia>
+        <ixx>0.001128</ixx>
+        <iyy>0.022492</iyy>
+        <izz>0.022793</izz>
+        <ixy>-0.001098</ixy>
+        <ixz>0.000196</ixz>
+        <iyz>3e-06</iyz>
+        </inertia>
+    </inertial>
+    <visual name="shin_visual">
+        <pose relative_to="knee_to_shin_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/shin-no-shell.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="tarsus">
+    <pose relative_to="shin_to_tarsus_joint">0 0 0 0 -1.57 0</pose>
+    <inertial>
+        <pose>0.100777 0.029183 0.000678 0 0 0</pose>
+        <mass>1.322865</mass>
+        <inertia>
+        <ixx>0.000932</ixx>
+        <iyy>0.016409</iyy>
+        <izz>0.016501</izz>
+        <ixy>-0.00061</ixy>
+        <ixz>0.000102</ixz>
+        <iyz>-9e-06</iyz>
+        </inertia>
+    </inertial>
+    <visual name="tarsus_visual">
+        <pose relative_to="shin_to_tarsus_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/tarsus-mirror.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="heel_spring">
+    <pose relative_to="heel_spring_joint">0 0 0 0 0 0</pose>
+    <inertial>
+        <pose>0.049086 -0.004739 -4.5e-05 0 0 0</pose>
+        <mass>0.230018</mass>
+        <inertia>
+        <ixx>5.5e-05</ixx>
+        <iyy>0.00074</iyy>
+        <izz>0.000701</izz>
+        <ixy>-1.5e-05</ixy>
+        <ixz>1e-06</ixz>
+        <iyz>0</iyz>
+        </inertia>
+    </inertial>
+    <visual name="heel_spring_visual">
+        <pose relative_to="heel_spring_joint">0 0 0 3.1415 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/heel-spring.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+    <!-- <visual name="heel_spring_indicator">
+        <pose relative_to="heel_spring">0 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.01 0.01 0.01</size>
+          </box>
+        </geometry>
+    </visual> -->
+</link>
+<link name ="toe_A">
+    <pose relative_to="toe_A_joint">0 0 0 0 1.5708 0</pose>
+    <inertial>
+        <pose>0.005161 -1e-06 -0.002248 0 0 0</pose>
+        <mass>0.139557</mass>
+        <inertia>
+        <ixx>2.9e-05</ixx>
+        <iyy>5.8e-05</iyy>
+        <izz>7.4e-05</izz>
+        <ixy>0</ixy>
+        <ixz>-4e-06</ixz>
+        <iyz>0</iyz>
+        </inertia>
+    </inertial>
+    <visual name="toe_A_visual">
+        <pose relative_to="toe_A">0 0 0 -3.14159 1.5526449 1.5708</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/toe-output.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name ="toe_A_rod">
+    <pose relative_to="toe_A_rod_joint">0 0 0 0 3.14159 0</pose>
+    <inertial>
+        <pose>0.005161 1e-06 -0.002248 0 0 0</pose>
+        <mass>0.139557</mass>
+        <inertia>
+        <ixx>2.9e-05</ixx>
+        <iyy>5.8e-05</iyy>
+        <izz>7.4e-05</izz>
+        <ixy>0</ixy>
+        <ixz>-4e-06</ixz>
+        <iyz>0</iyz>
+        </inertia>
+    </inertial>
+    <visual name="toe_A_rod_visual">
+        <pose relative_to="toe_A_rod">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/toe-A-rod.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+    <!-- <visual name="toe_A_rod_indicator">
+        <pose relative_to="toe_A_rod">0 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.01 0.01 0.01</size>
+          </box>
+        </geometry>
+    </visual>
+    <visual name="toe_A_rod_tail_indicator">
+        <pose relative_to="toe_A_rod">0.34 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.01 0.01 0.01</size>
+          </box>
+        </geometry>
+    </visual> -->
+</link>
+<link name ="toe_B">
+    <pose relative_to="toe_B_joint">0 0 0 0 1.5708 0</pose>
+    <inertial>
+        <pose>0.005161 -1e-06 -0.002248 0 0 0</pose>
+        <mass>0.139557</mass>
+        <inertia>
+        <ixx>2.9e-05</ixx>
+        <iyy>5.8e-05</iyy>
+        <izz>7.4e-05</izz>
+        <ixy>0</ixy>
+        <ixz>-4e-06</ixz>
+        <iyz>0</iyz>
+        </inertia>
+    </inertial>
+    <visual name="toe_B_visual">
+        <pose relative_to="toe_B_joint">0 0 0 1.5708 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/toe-output.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name ="toe_B_rod">
+    <pose relative_to="toe_B_rod_joint">0 0 0 0 0 0</pose>
+    <inertial>
+        <pose>0.142991 0 0 0 0 0</pose>
+        <mass>0.079507</mass>
+        <inertia>
+        <ixx>1e-06</ixx>
+        <iyy>0.000768</iyy>
+        <izz>0.000768</izz>
+        <ixy>0</ixy>
+        <ixz>0</ixz>
+        <iyz>0</iyz>
+        </inertia>
+    </inertial>
+    <visual name="toe_B_rod_visual">
+        <pose relative_to="toe_B_rod_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/toe-B-rod.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+    <!-- <visual name="toe_B_rod_indicator">
+        <pose relative_to="toe_B_rod_joint">0 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.01 0.01 0.01</size>
+          </box>
+        </geometry>
+    </visual>
+    <visual name="toe_B_rod_tail_indicator">
+        <pose relative_to="toe_B_rod">0.288 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.01 0.01 0.01</size>
+          </box>
+        </geometry>
+    </visual> -->
+</link>
+<link name="toe_pitch">
+    <pose relative_to="toe_pitch_joint">0 0 0 0 -1.57 0</pose>
+    <inertial>
+        <pose>-0.000141 -2e-06 3e-06 0 0 0</pose>
+        <mass>0.043881</mass>
+        <inertia>
+        <ixx>5e-06</ixx>
+        <iyy>8e-06</iyy>
+        <izz>4e-06</izz>
+        <ixy>0</ixy>
+        <ixz>0</ixz>
+        <iyz>0</iyz>
+        </inertia>
+    </inertial>
+    <visual name="toe_pitch_visual">
+        <pose relative_to="toe_pitch_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/toe-pitch-mirror.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="toe_roll">
+    <pose relative_to="toe_roll_joint">0 0 0 0 -1.5708 0</pose>
+    <inertial>
+        <pose>9e-06 0.028084 -0.023204 0 0 0</pose>
+        <mass>0.531283</mass>
+        <inertia>
+        <ixx>0.00187</ixx>
+        <iyy>0.001616</iyy>
+        <izz>0.000843</izz>
+        <ixy>0</ixy>
+        <ixz>0</ixz>
+        <iyz>-0.000566</iyz>
+        </inertia>
+    </inertial>
+    <visual name="toe_roll_visual">
+        <pose relative_to="toe_roll_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/toe-roll-mirror.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<joint name="hip_roll_joint" type="revolute">
+    <pose>0 0 0 0 0 0</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+            <lower>-1.0472</lower>
+            <upper>1.0472</upper>
+            <effort>1.4</effort>
+            <velocity>12.5</velocity>
+        </limit>
+        <dynamics>
+            <damping>1</damping>
+            <friction>1</friction>
+        </dynamics>
+    </axis>
+    <parent>base</parent>
+    <child>hip_roll</child>
+    <drake:gear_ratio>80</drake:gear_ratio>
+    <drake:rotor_inertia>0.173824</drake:rotor_inertia>
+</joint>
+<joint name="hip_yaw_joint" type="revolute">
+    <pose>-0.0505 0 0.044 0 -1.5708 0</pose>
+    <axis>
+        <xyz>0 0 1</xyz> 
+        <limit> 
+            <lower>-0.698132</lower>
+            <upper>0.698132</upper>
+            <effort>1.4</effort>
+            <velocity>10</velocity>
+        </limit>
+        <dynamics>
+            <damping>1</damping>
+            <friction>1</friction>
+        </dynamics>
+    </axis>
+    <parent>hip_roll</parent>
+    <child>hip_yaw</child>
+    <drake:gear_ratio>50</drake:gear_ratio>
+    <drake:rotor_inertia>0.0679</drake:rotor_inertia>
+</joint>
+<joint name="hip_pitch_joint" type="revolute">
+    <pose relative_to="hip_yaw_joint">0 -0.004 0.068 1.57079632679 -0.785398163397 -3.14159265359</pose>
+    <axis>
+        <xyz>0 0 -1</xyz>
+        <limit> 
+            <lower>-1.0472</lower>
+            <upper>1.5708</upper>
+            <effort>12.5</effort>
+            <velocity>10</velocity>
+        </limit>
+        <dynamics>
+            <damping>1</damping>
+            <friction>0.5</friction>
+        </dynamics>
+    </axis>
+    <parent>hip_yaw</parent>
+    <child>hip_pitch</child>
+    <drake:gear_ratio>16</drake:gear_ratio>
+    <drake:rotor_inertia>0.120473</drake:rotor_inertia>
+</joint>
+<joint name="hip_pitch_to_achilles_joint" type="ball">
+    <pose relative_to="hip_pitch_joint">0 0 0.046 -0.07138397 0.0008726646 1.4358824</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <velocity>10</velocity>
+            <effort>0</effort>
+        </limit>
+        <dynamics>
+            <damping>0.01</damping>
+        </dynamics>
+    </axis>
+    <parent>hip_pitch</parent>
+    <child>achilles_rod</child>
+</joint>
+<frame name="hip_pitch_to_achilles" attached_to="hip_pitch">
+    <pose relative_to="hip_pitch_joint">0 0 0.046 -0.07138397 0.0008726646 1.4358824</pose>
+</frame>
+<frame name="achilles_rod_head" attached_to="achilles_rod">
+    <pose relative_to="achilles_rod">0 0 0 0 0 0</pose>
+</frame>
+<frame name="achilles_rod_tail" attached_to="achilles_rod">
+    <pose>0.5 0 0 0 0 0</pose>
+</frame>
+<joint name="knee_joint" type="revolute">
+    <pose relative_to="hip_pitch_joint">0.12 0 0.0045 0 0 1.57079632679</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-1.39626</lower>
+            <upper>1.019272</upper>
+            <effort>1.4</effort>
+            <velocity>10</velocity>
+        </limit>
+        <dynamics>
+            <damping>1</damping>
+            <friction>0.5</friction>
+        </dynamics>
+    </axis>
+    <parent>hip_pitch</parent>
+    <child>knee</child>
+    <drake:gear_ratio>16</drake:gear_ratio>
+    <drake:rotor_inertia>0.120473</drake:rotor_inertia>
+</joint>
+<frame name="knee_spring_tip" attached_to="knee">
+    <pose relative_to="knee_joint">0.14 -0.09 0 0 0 0</pose>
+</frame>
+<joint name="knee_to_shin_joint" type="revolute">
+    <pose relative_to="knee_joint">0.060677 -0.047406 0 0 0 0</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-0.35</lower>
+            <upper>0.35</upper>
+            <effort>0</effort>
+            <velocity>10</velocity>
+        </limit>
+        <dynamics>
+            <spring_reference>0</spring_reference>
+            <spring_stiffness>6000</spring_stiffness>
+        </dynamics>
+    </axis>
+    <parent>knee</parent>
+    <child>shin</child>
+</joint>
+<frame name="shin_to_knee_spring" attached_to="shin">
+    <pose relative_to="knee_to_shin_joint">0.079 -0.042 0 0 0 0</pose>
+</frame>
+<joint name="shin_to_tarsus_joint" type="revolute">
+    <pose relative_to="knee_to_shin_joint">0.434759 -0.02 0 0 0 -1.79769</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-1.2497</lower>
+            <upper>0.8779</upper>
+            <effort>0</effort>
+            <velocity>20</velocity>
+        </limit>
+    </axis>
+    <parent>shin</parent>
+    <child>tarsus</child>
+</joint>
+<joint name="heel_spring_joint" type="revolute">
+    <pose relative_to="shin_to_tarsus_joint">-0.01766 0.029456 0.00104 0.07801622 0 -2.719223</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-0.10472</lower>
+            <upper>0.10472</upper>
+            <effort>0</effort>
+        </limit>
+        <dynamics>
+            <spring_reference>0</spring_reference>
+            <spring_stiffness>4375</spring_stiffness>
+        </dynamics>
+    </axis>
+    <parent>tarsus</parent>
+    <child>heel_spring</child>
+</joint>
+<frame name="heel_spring_tip" attached_to="heel_spring">
+    <pose relative_to="heel_spring">0.113789 0.011056 0 0 0 0</pose>
+</frame>
+<joint name="toe_A_joint" type="revolute">
+    <pose relative_to="shin_to_tarsus_joint">0.059 0.034 -0.0276 0 0 -1.5526449</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-0.807659838</lower>
+            <upper>0.7850752775</upper>
+        </limit>
+        <dynamics>
+            <damping>1</damping>
+            <friction>1</friction>
+        </dynamics>
+    </axis>
+    <parent>tarsus</parent>
+    <child>toe_A</child>
+    <drake:gear_ratio>50</drake:gear_ratio>
+    <drake:rotor_inertia>0.036089</drake:rotor_inertia>
+</joint>
+
+<joint name="toe_A_rod_joint" type="ball">
+    <pose relative_to="toe_A">-0.009 0.001 -0.057 -0.005734119 0.03735005 -1.5437437</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <dynamics>
+            <damping>0.01</damping>
+        </dynamics>
+        <limit>
+            <effort>0</effort>
+        </limit>
+    </axis>
+    <parent>toe_A</parent>
+    <child>toe_A_rod</child>
+</joint>
+<frame name="toe_A_rod_tail" attached_to="toe_A_rod">
+    <pose>0.34 0 0 0 0 0</pose>
+</frame>
+<joint name="toe_B_joint" type="revolute">
+    <pose relative_to="shin_to_tarsus_joint">0.111 0.034 0.0276 0 0 1.5526449</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-0.802851</lower>
+            <upper>0.802851</upper>
+        </limit>
+        <dynamics>
+            <damping>1</damping>
+            <friction>1</friction>
+        </dynamics>
+    </axis>
+    <parent>tarsus</parent>
+    <child>toe_B</child>
+    <drake:gear_ratio>50</drake:gear_ratio>
+    <drake:rotor_inertia>0.036089</drake:rotor_inertia>
+</joint>
+<frame name="toe_B_rod_tail" attached_to="toe_B_rod">
+    <pose>0.288 0 0 0 0 0</pose>
+</frame>
+<joint name="toe_B_rod_joint" type="ball">
+    <pose relative_to="toe_B">0.01 0 0.057 0.003839724 -0.05375614 -1.5418239</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <dynamics>
+            <damping>0.01</damping>
+        </dynamics>
+        <limit>
+            <effort>0</effort>
+        </limit>
+    </axis>
+    <parent>toe_B</parent>
+    <child>toe_B_rod</child>
+</joint>
+<joint name="toe_pitch_joint" type="revolute">
+    <pose relative_to="shin_to_tarsus_joint">0.408 0.04 0 0 0 -1.1956</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-0.785398163397</lower>
+            <upper>0.785398163397</upper>
+            <effort>0</effort>
+            <velocity>11.5</velocity>
+        </limit>
+    </axis>
+    <parent>tarsus</parent>
+    <child>toe_pitch</child>
+    <drake:gear_ratio>16</drake:gear_ratio>
+    <drake:rotor_inertia>0.120473</drake:rotor_inertia>
+</joint>
+<joint name="toe_roll_joint" type="revolute">
+    <pose relative_to="toe_pitch_joint">0 0 0 0 1.5708 0</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-0.6109</lower>
+            <upper>0.6109</upper>
+            <effort>0</effort>
+            <velocity>11.5</velocity>
+        </limit>
+    </axis>
+    <parent>toe_pitch</parent>
+    <child>toe_roll</child>
+    <drake:gear_ratio>16</drake:gear_ratio>
+    <drake:rotor_inertia>0.120473</drake:rotor_inertia>
+</joint>
+<frame name="toe_roll_A_rod" attached_to="toe_roll">
+    <pose relative_to="toe_roll_joint">0.0179 0.009551 -0.054164 0 0 0</pose>
+</frame>
+<frame name="toe_roll_B_rod" attached_to="toe_roll">
+    <pose relative_to="toe_roll_joint">-0.0181 0.009551 -0.054164 0 0 0</pose>
+</frame>
+<frame name="foot_relative_to_toe_roll" attached_to="toe_roll">
+    <pose relative_to="toe_roll_joint">0 0.0437 -0.0255 1.0472 0 0</pose>
+</frame>
+<frame name="foot_ground_contact" attached_to="toe_roll">
+    <pose relative_to="toe_roll_joint">0 0.0437 -0.0485 1.0472 0 0</pose>
+</frame>
+<drake:linear_bushing_rpy>
+    <drake:bushing_frameA>heel_spring</drake:bushing_frameA>
+    <drake:bushing_frameC>achilles_rod_tail</drake:bushing_frameC>
+    <drake:bushing_torque_stiffness>0 0 0</drake:bushing_torque_stiffness>
+    <drake:bushing_force_stiffness>20000 20000 20000</drake:bushing_force_stiffness>
+    <drake:bushing_torque_damping>0 0 0</drake:bushing_torque_damping>
+    <drake:bushing_force_damping>50 50 50</drake:bushing_force_damping>
+</drake:linear_bushing_rpy>
+<drake:linear_bushing_rpy>
+    <drake:bushing_frameA>toe_A_rod_tail</drake:bushing_frameA>
+    <drake:bushing_frameC>toe_roll_A_rod</drake:bushing_frameC>
+    <drake:bushing_torque_stiffness>0 0 0</drake:bushing_torque_stiffness>
+    <drake:bushing_force_stiffness>1000 1000 1000</drake:bushing_force_stiffness>
+    <drake:bushing_torque_damping>0 0 0</drake:bushing_torque_damping>
+    <drake:bushing_force_damping>5 5 5</drake:bushing_force_damping>
+</drake:linear_bushing_rpy>
+<drake:linear_bushing_rpy>
+    <drake:bushing_frameA>toe_B_rod_tail</drake:bushing_frameA>
+    <drake:bushing_frameC>toe_roll_B_rod</drake:bushing_frameC>
+    <drake:bushing_torque_stiffness>0 0 0</drake:bushing_torque_stiffness>
+    <drake:bushing_force_stiffness>1000 1000 1000</drake:bushing_force_stiffness>
+    <drake:bushing_torque_damping>0 0 0</drake:bushing_torque_damping>
+    <drake:bushing_force_damping>1 1 1</drake:bushing_force_damping>
+</drake:linear_bushing_rpy>
+<drake:linear_bushing_rpy>
+    <drake:bushing_frameA>knee_spring_tip</drake:bushing_frameA>
+    <drake:bushing_frameC>shin_to_knee_spring</drake:bushing_frameC>
+    <drake:bushing_torque_stiffness>0 0 0</drake:bushing_torque_stiffness>
+    <drake:bushing_force_stiffness>4000 4000 4000</drake:bushing_force_stiffness>
+    <drake:bushing_torque_damping>0 0 0</drake:bushing_torque_damping>
+    <drake:bushing_force_damping>10 10 10</drake:bushing_force_damping>
+</drake:linear_bushing_rpy>
+</model>
+</sdf>

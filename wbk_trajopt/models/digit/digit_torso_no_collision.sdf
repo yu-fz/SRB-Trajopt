@@ -1,0 +1,42 @@
+<?xml version='1.0'?>
+<sdf xmlns:drake="http://drake.mit.edu" version="1.9">
+<model name="digit_torso">
+<link name="base"></link>
+<link name="torso">
+    <inertial>
+        <mass>15.028392</mass>
+        <inertia>
+        <ixx>0.375905</ixx>
+        <iyy>0.344193</iyy>
+        <izz>0.098732</izz>
+        <ixy>-8.8e-05</ixy>
+        <ixz>0.0085</ixz>
+        <iyz>6.6e-05</iyz>
+        </inertia>
+    </inertial>
+    <visual name="torso_visual">
+        <geometry>
+            <mesh>
+                <uri>package://drail_drake/model_files/digit/visual/torso.obj</uri>
+            </mesh>
+        </geometry>
+    </visual>
+    <visual name="left_shoulder_cap_visual">
+        <pose>-0.001 0.12 0.4 -0.174533 -1.5708 0</pose>
+        <geometry>
+            <mesh>
+                <uri>package://drail_drake/model_files/digit/visual/shoulder-roll-housing.obj</uri>
+            </mesh>
+        </geometry>
+    </visual>
+    <visual name="right_waist_cap_visual">
+        <pose>-0.001 -0.09 0 0 -1.5708 0</pose>
+        <geometry>
+            <mesh>
+                <uri>package://drail_drake/model_files/digit/visual/hip-roll-housing-mirror.obj</uri>
+            </mesh>
+        </geometry>
+    </visual> 
+</link>
+</model>
+</sdf>

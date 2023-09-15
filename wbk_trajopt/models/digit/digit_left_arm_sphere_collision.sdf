@@ -1,0 +1,274 @@
+<?xml version='1.0'?>
+<sdf xmlns:drake="http://drake.mit.edu" version="1.9">
+<model name="digit_left_arm">
+<link name="base"></link>
+<link name="left_shoulder_roll">
+    <pose>0 0 0 0 0 0</pose>
+    <inertial>
+        <pose>9e-06 -0.003158 0.023405 0 0 0</pose>
+        <mass>0.535396</mass>
+        <inertia>
+        <ixx>0.000704</ixx>
+        <iyy>0.00075</iyy>
+        <izz>0.000298</izz>
+        <ixy>1.4e-05</ixy>
+        <ixz>1.2e-05</ixz>
+        <iyz>3.5e-05</iyz>
+        </inertia>
+    </inertial>
+    <visual name="arm_l1_visual">
+        <pose relative_to="left_shoulder_roll">0 0 0 0 0 -0.2792527</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/arm-L1.obj</uri> 
+        </mesh>
+        </geometry>
+    </visual>
+</link>
+<link name="left_shoulder_pitch">
+    <pose relative_to="left_shoulder_roll">-0.00317 -0.011055 0.0555 1.5708 0.7853981 -0.2792527</pose>
+    <inertial>
+        <pose>-4.2e-05 -0.061882 -0.073788 0 0 0</pose>
+        <mass>1.440357</mass>
+        <inertia>
+        <ixx>0.006761</ixx>
+        <iyy>0.002087</iyy>
+        <izz>0.005778</izz>
+        <ixy>-6e-06</ixy>
+        <ixz>-3e-06</ixz>
+        <iyz>-0.002046</iyz>
+        </inertia>
+    </inertial>
+    <visual name="arm_l2_visual">
+        <pose relative_to="left_shoulder_pitch">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh>
+            <uri>package://drail_drake/model_files/digit/visual/arm-L2.obj</uri>
+        </mesh>    
+        </geometry>
+    </visual>
+    <!-- <collision name="shoulder_pitch_geom_1">
+        <pose relative_to="left_shoulder_pitch">0 -0.008 -0.07 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.042</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="shoulder_pitch_geom_2">
+        <pose relative_to="left_shoulder_pitch">0 -0.093 -0.1 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.048</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+</link>
+<link name="left_shoulder_yaw">
+    <pose relative_to="left_shoulder_pitch">0 -0.165 -0.1 1.5708  0 0</pose>
+    <inertial>
+        <pose>-3e-05 -0.001937 0.11407 0 0 0</pose>
+        <mass>1.065387</mass>
+        <inertia>
+        <ixx>0.006967</ixx>
+        <iyy>0.007003</iyy>
+        <izz>0.000673</izz>
+        <ixy>1e-06</ixy>
+        <ixz>-1e-06</ixz>
+        <iyz>1.5e-05</iyz>
+        </inertia>
+    </inertial>
+    <visual name="arm_l3_visual">
+        <pose relative_to="shoulder_yaw_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/arm-L3.obj</uri>
+        </mesh>    
+        </geometry>
+    </visual>
+    <!-- <collision name="shoulder_yaw_geom_1">
+        <pose relative_to="left_shoulder_yaw">0 0.0035 0.042558 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.038</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="shoulder_yaw_geom_2">
+        <pose relative_to="left_shoulder_yaw">0 0.0035 0.072558 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.038</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="shoulder_yaw_geom_3">
+        <pose relative_to="left_shoulder_yaw">0 0.0035 0.12 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.038</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="shoulder_yaw_geom_4">
+        <pose relative_to="left_shoulder_yaw">0 0.0035 0.165 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.042</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="shoulder_yaw_geom_5">
+        <pose relative_to="left_shoulder_yaw">0 0.00385 0.185 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.042</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+</link>
+<link name="left_elbow">
+    <pose relative_to="left_shoulder_yaw">0 -0.0385 0.185 1.57079632679 -0.3926991 0</pose>
+    <inertial>
+        <pose>0.107996 -0.000521 -0.017765 0 0 0</pose>
+        <mass>0.550582</mass>
+        <inertia>
+        <ixx>0.000476</ixx>
+        <iyy>0.009564</iyy>
+        <izz>9.437e-03</izz>
+        <ixy>-2.9e-05</ixy>
+        <ixz>0.001403</ixz>
+        <iyz>9e-06</iyz>
+        </inertia>
+    </inertial>
+    <visual name="arm_l4_visual">
+        <pose relative_to="elbow_joint">0 0 0 0 0 0</pose>
+        <geometry>
+        <mesh> 
+            <uri>package://drail_drake/model_files/digit/visual/arm-L4.obj</uri>
+        </mesh>    
+        </geometry>
+    </visual>
+    <!-- <collision name="elbow_geom_1">
+        <pose relative_to="left_elbow">0.1 0 0 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.042</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="elbow_geom_2">
+        <pose relative_to="left_elbow">0.18 0 -0.02 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.032</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="elbow_geom_3">
+        <pose relative_to="left_elbow">0.26 0 -0.03 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.028</radius>
+            </sphere>
+        </geometry>
+    </collision>
+    <collision name="elbow_geom_4">
+        <pose relative_to="left_elbow">0.33 0.005 -0.05 0 0 0</pose>
+        <geometry>
+            <sphere>
+                <radius>0.022</radius>
+            </sphere>
+        </geometry>
+    </collision> -->
+    <!-- <collision name="end_effector_point_geom_1">
+        <pose relative_to="elbow_joint_left">0.375 0.005 -0.06 0 0 0</pose>
+        <geometry>
+            <sphere>
+            <radius>0.02</radius>
+            </sphere>
+        </geometry>
+        <drake:proximity_properties>
+            <drake:compliant_hydroelastic/>
+            <drake:mesh_resolution_hint>0.1</drake:mesh_resolution_hint>
+            <drake:hydroelastic_modulus>2e10</drake:hydroelastic_modulus>
+            <drake:hunt_crossley_dissipation>2</drake:hunt_crossley_dissipation>
+            <drake:point_contact_stiffness>4000</drake:point_contact_stiffness>
+            <drake:mu_static>1.15</drake:mu_static>
+            <drake:mu_dynamic>1</drake:mu_dynamic>
+        </drake:proximity_properties>
+    </collision> -->
+</link>
+<joint name='torso_to_shoulder_joint' type='revolute'>
+    <pose relative_to="left_shoulder_roll">0 0 0 0 0 0</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+            <lower>-1.309</lower>
+            <upper>1.309</upper>
+            <effort>1.4</effort>
+            <velocity>12.5</velocity>
+        </limit>
+        <dynamics>
+            <damping>2</damping>
+            <friction>2</friction>
+        </dynamics>
+    </axis>
+    <parent>base</parent>
+    <child>left_shoulder_roll</child>
+    <drake:gear_ratio>80</drake:gear_ratio>
+    <drake:rotor_inertia>0.173824</drake:rotor_inertia>
+</joint>
+<joint name="shoulder_pitch_joint" type="revolute">
+    <pose relative_to="left_shoulder_pitch">0 0 0 0 0 0</pose>
+    <axis>
+        <xyz>0 0 -1</xyz>
+        <limit>
+            <lower>-2.5307</lower>
+            <upper>2.5307</upper>
+            <effort>1.4</effort>
+            <velocity>12.5</velocity>
+        </limit>
+    </axis>
+    <parent>left_shoulder_roll</parent>
+    <child>left_shoulder_pitch</child>
+    <drake:gear_ratio>80</drake:gear_ratio>
+    <drake:rotor_inertia>0.173824</drake:rotor_inertia>
+</joint>
+<joint name="shoulder_yaw_joint" type="revolute">
+    <pose relative_to="left_shoulder_yaw">0 0 0 0 0 0</pose>
+    <axis>
+        <xyz>0 0 1</xyz>
+        <limit> 
+            <lower>-1.7453</lower>
+            <upper>1.7453</upper>
+            <effort>1.4</effort>
+            <velocity>10</velocity>
+        </limit>
+    </axis>
+    <parent>left_shoulder_pitch</parent>
+    <child>left_shoulder_yaw</child>
+    <drake:gear_ratio>50</drake:gear_ratio>
+    <drake:rotor_inertia>0.0679</drake:rotor_inertia>
+</joint>
+<joint name="elbow_joint" type="revolute">
+    <pose relative_to="left_elbow">0 0 0 0 0 0</pose>
+    <axis> 
+        <xyz>0 0 1</xyz>
+        <limit>
+            <lower>-1.3526</lower>
+            <upper>1.3526</upper>
+            <effort>1.4</effort>
+            <velocity>12.5</velocity>
+        </limit> 
+    </axis>
+    <parent>left_shoulder_yaw</parent>
+    <child>left_elbow</child>
+    <drake:gear_ratio>80</drake:gear_ratio>
+    <drake:rotor_inertia>0.173824</drake:rotor_inertia>
+</joint>
+<frame name="gripper" attached_to="left_elbow">
+    <pose relative_to="elbow_joint">0.375 0.005 -0.06 0 0 0</pose>
+</frame>
+</model>
+</sdf>
