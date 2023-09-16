@@ -26,7 +26,7 @@ class TestSRBTrajopt(unittest.TestCase):
     #     srb_trajopt.render_srb()
 
     def test_trajopt_solver(self):
-        srb_trajopt = SRBTrajopt(self.options, self.initial_guess, headless=True)
+        srb_trajopt = SRBTrajopt(self.options, self.initial_guess, headless=False)
         srb_trajopt.solve_trajopt()
 
 if __name__ == '__main__':

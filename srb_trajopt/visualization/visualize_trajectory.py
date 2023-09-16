@@ -1,3 +1,4 @@
+import time 
 
 from pydrake.all import (
     Diagram,
@@ -19,16 +20,20 @@ def render_SRB_trajectory(
     right_foot_pos_traj = trajectories[2]
 
     FPS = 30
-    time = np.arange(start=0, 
+    times = np.arange(start=0, 
                      stop=trajectory_duration, 
                      step=1/FPS)
     
-    for i in range(len(time)):
+    for i in range(len(times)):
         #TODO draw foot trajectories
-        context.SetTime(time[i])
-        plant.SetPositions(plant_context, srb_floating_base_traj.value(time[i]))
+        context.SetTime(times[i])
+        srb_orientation = srb_floating_base_traj.get_orientation_trajectory().value(times[i])
+        srb_com_pos = srb_floating_base_traj.get_position_trajectory().value(times[i])
+        srb_state = np.concatenate((srb_orientation, srb_com_pos))
+        #print(srb_floating_base_traj.value(time[i]).shape)
+        plant.SetPositions(plant_context, srb_state)
         srb_diagram.ForcedPublish(context)
-
+    time.sleep(5)
     visualizer.StopRecording()
     visualizer.PublishRecording()
 

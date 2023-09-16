@@ -28,7 +28,8 @@ from pydrake.all import (
     PiecewiseQuaternionSlerp,
     PiecewiseQuaternionSlerp_,
     Quaternion,
-    Quaternion_
+    Quaternion_,
+    OrientationConstraint
 )
 
 from pydrake.math import (
@@ -105,18 +106,31 @@ class SRBTrajopt:
                  headless: bool = False) -> None:
         
         self.options = options
+        self.headless = headless
         srb_builder = SRBBuilder(self.options, headless)
         self.srb_diagram, self.ad_srb_diagram = srb_builder.create_srb_diagram()
         self.srb_body_idx = self.ad_plant.GetBodyIndices(self.ad_plant.GetModelInstanceByName("body"))[0]
         self.ad_srb_body = self.ad_plant.GetBodyByName("body")
         self.srb_body = self.plant.GetBodyByName("body")
+        self.srb_body_frame, self.ad_srb_body_frame = [plant.GetFrameByName("body") for plant in [self.plant, self.ad_plant]] 
+
         self.meshcat = srb_builder.meshcat
-        self.body_v0 = np.array([0., 0., 0.]) # initial body velocity
+        self.body_v0 = np.array([1., 0., 0.]) # initial body velocity
         self.ad_simulator = Simulator_[AutoDiffXd](self.ad_srb_diagram, 
                                       self.ad_srb_diagram.CreateDefaultContext())
         self.ad_simulator.Initialize()
         self.I_BBo_B = self.srb_body.default_rotational_inertia().CopyToFullMatrix3()
         self.gravity = np.array([0., 0., -9.81])
+
+
+        # Create autodiff and regular contexts for this constraint (to maximize cache hits)
+        self.ad_plant_dynamics_context = [
+            self.ad_plant.CreateDefaultContext() for i in range(self.options.N)
+        ]
+
+        self.plant_dynamics_context = [
+            self.plant.CreateDefaultContext() for i in range(self.options.N)
+        ]
 
     @property
     def plant(self):
@@ -148,7 +162,10 @@ class SRBTrajopt:
         Returns:
             visualizer: MeshcatVisualizer object from SRB diagram
         """
-        return self.srb_diagram.GetSubsystemByName("visualizer")
+        if not self.headless:
+            return self.srb_diagram.GetSubsystemByName("visualizer")
+        else:
+            raise RuntimeError("Cannot access visualizer in headless mode")
 
     def create_trajopt_program(self):
         """
@@ -205,13 +222,19 @@ class SRBTrajopt:
         
         """
         default_com = np.array([0., 0., 1.])
-        default_com_dot = np.array([0., 0., 0.])
+        default_com_dot = self.body_v0
         default_quat = np.array([1., 0., 0., 0.])
-        #default_angvel = np.array([0., 0., 0.])
+        default_angvel = np.array([0., 0., 0.])
         default_p_W_LF = np.array([0., 0.1, 0.])
         default_p_W_RF = np.array([0., -0.1, 0.])
+        dt = self.T/self.N
         for n in range(self.N):
             # set CoM position guess 
+            t = n*dt
+            x = t*default_com_dot[0]
+            print(f"t: {t}, x: {x}")
+            default_com[0] = x
+            print(f"com: {default_com}")
             prog.SetInitialGuess(
                 self.com[:, n],
                 default_com
@@ -226,7 +249,13 @@ class SRBTrajopt:
                 self.body_quat[:, n],
                 default_quat
             )
-        
+
+            # set body angular velocity guess
+            prog.SetInitialGuess(
+                self.body_angvel[:, n],
+                default_angvel
+            )
+
         for n in range(self.N):
             for i in range(len(self.contact_forces)):
                 if self.in_stance[i, n]:
@@ -246,12 +275,6 @@ class SRBTrajopt:
                         0
                     )
 
-
-            # # set body angular velocity guess
-            # prog.SetInitialGuess(
-            #     self.body_angvel[:, n],
-            #     default_angvel
-            # )
             # # set left foot position guess
             # prog.SetInitialGuess(
             #     self.p_W_LF[:, n],
@@ -263,6 +286,35 @@ class SRBTrajopt:
             #     default_p_W_RF
             # )
             
+
+    def get_srb_pose_at_idx(self, n: int):
+        """
+        Returns the concatenated quaternion and CoM position decision variables (full SRB position state) at knot point n
+        """
+        assert n <= self.N, "n must be less than or equal to the number of knot points"
+        return np.concatenate((
+            self.body_quat[:, n],
+            self.com[:, n]
+        ))
+
+    def get_srb_velocities_at_idx(self, n: int):
+        """
+        Returns the concatenated quaternion and CoM position decision variables (full SRB position state) at knot point n
+        """
+        assert n <= self.N, "n must be less than or equal to the number of knot points"
+        return np.concatenate((
+            self.body_angvel[:, n],
+            self.com_dot[:, n]
+        ))
+
+    def concat_srb_states(self, srb_rot_var, srb_lin_var):
+        """
+        Concatenates the rotational and linear decision variables to get the full SRB position or velocity state
+        """
+        return np.concatenate((
+            srb_rot_var,
+            srb_lin_var
+        ))
 
     #####################################
     # Trajopt cost function definitions #
@@ -277,7 +329,11 @@ class SRBTrajopt:
         Q[1, 1] = 0.01
         Q[2, 2] = 0.1
         x_des = np.array([0., 0., 1.])
+        dt = self.T/self.N
+
         for n in range(self.N):
+            com_pos_x = n*dt*self.body_v0[0]
+            x_des[0] = com_pos_x
             prog.AddQuadraticErrorCost(
                 Q=Q,
                 x_desired=x_des,
@@ -297,11 +353,10 @@ class SRBTrajopt:
         #mg = 10
         cost_scale = 1/(self.options.max_z_grf**2)
         Q_force = np.eye(3)*2*cost_scale
-        Q_force[2, 2] = 5*cost_scale
+        Q_force[2, 2] = 20*cost_scale
         # Q_force_z = np.array([Q_force[2, 2]])
-        Q_dforce_dt = 0.001
-        Q_com_acc = np.eye(3)*3000
-        Q_torque = np.eye(3)*2
+        Q_dforce_dt = 1*cost_scale
+        Q_torque = np.eye(3)*10*cost_scale
 
         gamma_dfrc_dt_cost = 1
         def d_force_dt_cost(x: np.ndarray, n: int):
@@ -309,13 +364,13 @@ class SRBTrajopt:
             Computes the cost on the rate of change of foot forces
             """
             force_n, force_n_minus_1 = np.split(x, 
-                                                [1,])
+                                                [3,])
             
             discount = 1
             dforce_dt_cost = discount * Q_dforce_dt * np.linalg.norm(force_n - force_n_minus_1, ord=1)
             dforce_dt_cost = Q_dforce_dt * np.abs(force_n - force_n_minus_1)
+            #print(f"dforce_dt_cost: {dforce_dt_cost}")
             # dforce_dt_cost = (1/(np.exp(-dforce_dt_cost*0.003))) - 1
-            print(f"n: {n}, dforce_dt_cost: {dforce_dt_cost}")
             return dforce_dt_cost[0]
 
         # def com_acc_cost(x: np.ndarray):
@@ -341,7 +396,7 @@ class SRBTrajopt:
         #             vars=com_acc_vars
         #         )
 
-        gamma_frc_cost = 1
+        gamma_frc_cost = 1.
         for n in range(self.N):
             contacts = self.in_stance[:, n]
             num_contacts = np.sum(contacts)
@@ -353,26 +408,31 @@ class SRBTrajopt:
                         x_desired=np.array([0., 0., desired_force_per_contact]),
                         vars=self.contact_forces[i][:, n]
                     )
+                    prog.AddQuadraticErrorCost(
+                        Q=np.power(gamma_frc_cost, n)*Q_torque,
+                        x_desired=np.array([0., 0., 0.]),
+                        vars=self.contact_torques[i][:, n]
+                    )
 
             # if n > 0:
             #     for i in range(8):
-            #         #if self.in_stance[i, n] and self.in_stance[i, n-1]:
-            #         d_force_dt_vars = np.array(
-            #             [self.contact_forces[i][2, n], 
-            #                 self.contact_forces[i][2, n-1]]
-            #         )
-            #         # com_acc_vars = np.concatenate(
-            #         #     [self.contact_forces[i][:, n],
-            #         #     self.contact_forces[i][:, n-1]]
-            #         # )
-            #         # prog.AddCost(
-            #         #     com_acc_cost,
-            #         #     vars=com_acc_vars
-            #         # )
-            #         prog.AddCost(
-            #             partial(d_force_dt_cost, n=n),
-            #             vars=d_force_dt_vars
-            #         )
+            #         if self.in_stance[i, n] and self.in_stance[i, n-1]:
+            #             d_force_dt_vars = np.concatenate((
+            #                 [self.contact_forces[i][:, n], 
+            #                     self.contact_forces[i][:, n-1]])
+            #             )
+            #             # com_acc_vars = np.concatenate(
+            #             #     [self.contact_forces[i][:, n],
+            #             #     self.contact_forces[i][:, n-1]]
+            #             # )
+            #             # prog.AddCost(
+            #             #     com_acc_cost,
+            #             #     vars=com_acc_vars
+            #             # )
+            #             prog.AddCost(
+            #                 partial(d_force_dt_cost, n=n),
+            #                 vars=d_force_dt_vars
+            #             )
 
     ################################## 
     # Trajopt constraint definitions #
@@ -385,6 +445,7 @@ class SRBTrajopt:
         prog.AddBoundingBoxConstraint(0.5 * self.T / self.N, 2 * self.T / self.N, self.h).evaluator().set_description("duration constraint")
         prog.AddLinearConstraint(sum(self.h) >= 0.9 * self.T).evaluator().set_description("total time constraint lower")
         prog.AddLinearConstraint(sum(self.h) <= 1.1 * self.T).evaluator().set_description("total time constraint upper")
+
 
     def add_unit_quaternion_constraint(self, prog: MathematicalProgram):
         """
@@ -401,30 +462,70 @@ class SRBTrajopt:
         Constrains the initial CoM velocity to be zero
         """
 
-        start_pos_lb = 0.95
-        start_pos_ub = 1.05
-        prog.AddBoundingBoxConstraint(
-            start_pos_lb, 
-            start_pos_ub, 
-            self.com[2, 0]).evaluator().set_description("initial body pos constraint")
+        start_pos_lb = [0, 0, 0.95]
+        start_pos_ub = [0, 0, 1.05]
+
+        x_f = self.T*self.body_v0[0]
+        print(f"x_f: {x_f}")
+        end_pos_lb = [x_f-0.1, 0, 0.95]
+        end_pos_ub = [x_f+0.1, 0, 1.05]
 
         prog.AddBoundingBoxConstraint(
             start_pos_lb, 
             start_pos_ub, 
-            self.com[2, -1]).evaluator().set_description("final body pos constraint")
+            self.com[:, 0]).evaluator().set_description("initial body pos constraint")
+
+        prog.AddBoundingBoxConstraint(
+            end_pos_lb, 
+            end_pos_ub, 
+            self.com[:, -1]).evaluator().set_description("final body pos constraint")
 
         # ### test com velocity constraint
         # for n in range(self.N - 1):
         prog.AddBoundingBoxConstraint(
-            [0, 0, -0.01],
-            [0, 0, 0.01],
+            self.body_v0,
+            self.body_v0,
             self.com_dot[:, 0]).evaluator().set_description("com velocity constraint t0 ")
 
         prog.AddBoundingBoxConstraint(
-            [0, 0, -0.01],
-            [0, 0, 0.01],
+            self.body_v0,
+            self.body_v0,
             self.com_dot[:, -1]).evaluator().set_description("com velocity constraint tf ")
-
+        
+        # prog.AddLinearConstraint(
+        #     self.body_quat[:, 0],
+        #     np.array([1., 0., 0., 0.]),
+        #     np.array([1., 0., 0., 0.]),
+        # )
+        self.srb_orientation_context = [
+            self.plant.CreateDefaultContext() for i in range(self.options.N)
+        ]
+        for n in range(self.N):
+            prog.AddConstraint(
+                OrientationConstraint(
+                    self.plant,
+                    self.srb_body_frame,
+                    RotationMatrix(),
+                    self.plant.world_frame(),
+                    RotationMatrix(),
+                    0.1,
+                    self.srb_orientation_context[n],
+                ),
+                vars=self.get_srb_pose_at_idx(n)
+            )
+    
+        prog.AddConstraint(
+            OrientationConstraint(
+                self.plant,
+                self.srb_body_frame,
+                RotationMatrix(),
+                self.plant.world_frame(),
+                RotationMatrix(),
+                0.1,
+                self.srb_orientation_context[-1],
+            ),
+            vars=self.get_srb_pose_at_idx(-1)
+        )
                            
     def add_com_position_constraint(self, prog: MathematicalProgram):
         """
@@ -533,7 +634,7 @@ class SRBTrajopt:
             angular_vel = self.body_angvel[:, n]
             h = self.h[n]
             # Create the constraint
-            dut = QuaternionEulerIntegrationConstraint(allow_quaternion_negation=True)
+            dut = QuaternionEulerIntegrationConstraint(allow_quaternion_negation=False)
             # Add the constraint to the program
             prog.AddConstraint(dut, dut.ComposeVariable(quat1, quat2, angular_vel, h))
 
@@ -541,15 +642,6 @@ class SRBTrajopt:
         """
         Integrates the contact torque decision variables to constrain angular velocity decision variables
         """
-
-        # Create autodiff and regular contexts for this constraint (to maximize cache hits)
-        ad_angular_velocity_dynamics_context = [
-            self.ad_plant.CreateDefaultContext() for i in range(self.N)
-        ]
-
-        angular_velocity_dynamics_context = [
-            self.plant.CreateDefaultContext() for i in range(self.N)
-        ]
 
         def get_foot_contact_positions(
             srb_yaw_rotation_mat,
@@ -698,55 +790,59 @@ class SRBTrajopt:
             k2_decision_vars["p_W_RF_k2"] = ExtractValue(p_W_RF_k2).reshape(3,)
             k2_decision_vars["foot_forces_k2"] = ExtractValue(foot_forces_k2)
             k2_decision_vars["foot_torques_k2"] = ExtractValue(foot_torques_k2)
+            srb_position_state_k1 = self.concat_srb_states(quat_k1, com_k1)
+            srb_position_state_k2 = self.concat_srb_states(quat_k2, com_k2)
+            srb_velocity_state_k1 = self.concat_srb_states(body_angvel_k1, com_dot_k1)
+            srb_velocity_state_k2 = self.concat_srb_states(body_angvel_k2, com_dot_k2)
 
             if isinstance(x[0], AutoDiffXd):
-                srb_position_state_k1 = np.concatenate((quat_k1, com_k1))
-                srb_velocity_state_k1 = np.concatenate((body_angvel_k1, com_dot_k1))
+                # srb_position_state_k1 = np.concatenate((quat_k1, com_k1))
+                # srb_velocity_state_k1 = np.concatenate((body_angvel_k1, com_dot_k1))
                 
-                srb_position_state_k2 = np.concatenate((quat_k2, com_k2))
-                srb_velocity_state_k2 = np.concatenate((body_angvel_k2, com_dot_k2))
+                # srb_position_state_k2 = np.concatenate((quat_k2, com_k2))
+                # srb_velocity_state_k2 = np.concatenate((body_angvel_k2, com_dot_k2))
 
                 srb_context_position_state_k1 = self.ad_plant.GetPositions(
-                    ad_angular_velocity_dynamics_context[context_idx]
+                    self.ad_plant_dynamics_context[context_idx]
                 )
                 srb_context_velocity_state_k1 = self.ad_plant.GetVelocities(
-                    ad_angular_velocity_dynamics_context[context_idx]
+                    self.ad_plant_dynamics_context[context_idx]
                 )
 
                 srb_context_position_state_k2 = self.ad_plant.GetPositions(
-                    ad_angular_velocity_dynamics_context[context_idx + 1]
+                    self.ad_plant_dynamics_context[context_idx + 1]
                 )
                 srb_context_velocity_state_k2 = self.ad_plant.GetVelocities(
-                    ad_angular_velocity_dynamics_context[context_idx + 1]
+                    self.ad_plant_dynamics_context[context_idx + 1]
                 )
 
                 # Set the context positions and velocities
                 if (not autodiff_array_equal(srb_position_state_k1, srb_context_position_state_k1)) or \
                     (not autodiff_array_equal(srb_velocity_state_k1, srb_context_velocity_state_k1)):
                     self.ad_plant.SetPositionsAndVelocities(
-                        ad_angular_velocity_dynamics_context[context_idx],
+                        self.ad_plant_dynamics_context[context_idx],
                         np.concatenate((srb_position_state_k1, srb_velocity_state_k1))
                     )
                 if (not autodiff_array_equal(srb_position_state_k2, srb_context_position_state_k2)) or \
                     (not autodiff_array_equal(srb_velocity_state_k2, srb_context_velocity_state_k2)):
                     self.ad_plant.SetPositionsAndVelocities(
-                        ad_angular_velocity_dynamics_context[context_idx + 1],
+                        self.ad_plant_dynamics_context[context_idx + 1],
                         np.concatenate((srb_position_state_k2, srb_velocity_state_k2))
                     )
                 
                 I_B_W_k1 = self.ad_plant.CalcSpatialInertia(
-                    ad_angular_velocity_dynamics_context[context_idx],
+                    self.ad_plant_dynamics_context[context_idx],
                     self.ad_plant.world_frame(),
                     [self.srb_body_idx]
                 ).CalcRotationalInertia().CopyToFullMatrix3()
 
                 I_B_W_k2 = self.ad_plant.CalcSpatialInertia(
-                    ad_angular_velocity_dynamics_context[context_idx + 1],
+                    self.ad_plant_dynamics_context[context_idx + 1],
                     self.ad_plant.world_frame(),
                     [self.srb_body_idx]
                 ).CalcRotationalInertia().CopyToFullMatrix3()
                 srb_orientation_euler_k1 = self.ad_plant.EvalBodyPoseInWorld(
-                    ad_angular_velocity_dynamics_context[context_idx],
+                    self.ad_plant_dynamics_context[context_idx],
                     self.ad_srb_body
                 ).rotation().ToRollPitchYaw().vector()
 
@@ -754,12 +850,12 @@ class SRBTrajopt:
                 q_dot_k1 = np.zeros_like(srb_context_position_state_k1)
                 q_dot_k2 = np.zeros_like(srb_context_position_state_k2)
                 q_dot_k1 = self.ad_plant.MapVelocityToQDot(
-                    ad_angular_velocity_dynamics_context[context_idx],
-                    self.ad_plant.GetVelocities(ad_angular_velocity_dynamics_context[context_idx]),
+                    self.ad_plant_dynamics_context[context_idx],
+                    self.ad_plant.GetVelocities(self.ad_plant_dynamics_context[context_idx]),
                 )
                 q_dot_k2 = self.ad_plant.MapVelocityToQDot(
-                    ad_angular_velocity_dynamics_context[context_idx + 1],
-                    self.ad_plant.GetVelocities(ad_angular_velocity_dynamics_context[context_idx + 1]),
+                    self.ad_plant_dynamics_context[context_idx + 1],
+                    self.ad_plant.GetVelocities(self.ad_plant_dynamics_context[context_idx + 1]),
                 )
 
                 quat_dot_k1 = q_dot_k1[0:4]
@@ -885,52 +981,46 @@ class SRBTrajopt:
                 return omega_dot_kc - rhs
 
             else:   
-                srb_position_state_k1 = np.concatenate((quat_k1, com_k1))
-                srb_velocity_state_k1 = np.concatenate((body_angvel_k1, com_dot_k1))
-                
-                srb_position_state_k2 = np.concatenate((quat_k2, com_k2))
-                srb_velocity_state_k2 = np.concatenate((body_angvel_k2, com_dot_k2))
-
-                srb_context_position_state_k1 = self.ad_plant.GetPositions(
-                    ad_angular_velocity_dynamics_context[context_idx]
+                srb_context_position_state_k1 = self.plant.GetPositions(
+                    self.plant_dynamics_context[context_idx]
                 )
-                srb_context_velocity_state_k1 = self.ad_plant.GetVelocities(
-                    ad_angular_velocity_dynamics_context[context_idx]
+                srb_context_velocity_state_k1 = self.plant.GetVelocities(
+                    self.plant_dynamics_context[context_idx]
                 )
 
-                srb_context_position_state_k2 = self.ad_plant.GetPositions(
-                    ad_angular_velocity_dynamics_context[context_idx + 1]
+                srb_context_position_state_k2 = self.plant.GetPositions(
+                    self.plant_dynamics_context[context_idx + 1]
                 )
-                srb_context_velocity_state_k2 = self.ad_plant.GetVelocities(
-                    ad_angular_velocity_dynamics_context[context_idx + 1]
+                srb_context_velocity_state_k2 = self.plant.GetVelocities(
+                    self.plant_dynamics_context[context_idx + 1]
                 )
                 # Set the context positions and velocities
                 if (not np.array_equal(srb_position_state_k1, srb_context_position_state_k1)) or \
                     (not np.array_equal(srb_velocity_state_k1, srb_context_velocity_state_k1)):
                     self.plant.SetPositionsAndVelocities(
-                        angular_velocity_dynamics_context[context_idx],
+                        self.plant_dynamics_context[context_idx],
                         np.concatenate((srb_position_state_k1, srb_velocity_state_k1))
                     )
                 if (not np.array_equal(srb_position_state_k2, srb_context_position_state_k2)) or \
                     (not np.array_equal(srb_velocity_state_k2, srb_context_velocity_state_k2)):
                     self.plant.SetPositionsAndVelocities(
-                        angular_velocity_dynamics_context[context_idx + 1],
+                        self.plant_dynamics_context[context_idx + 1],
                         np.concatenate((srb_position_state_k2, srb_velocity_state_k2))
                     )
                 
                 I_B_W_k1 = self.plant.CalcSpatialInertia(
-                    angular_velocity_dynamics_context[context_idx],
+                    self.plant_dynamics_context[context_idx],
                     self.plant.world_frame(),
                     [self.srb_body_idx]
                 ).CalcRotationalInertia().CopyToFullMatrix3()
 
                 I_B_W_k2 = self.plant.CalcSpatialInertia(
-                    angular_velocity_dynamics_context[context_idx + 1],
+                    self.plant_dynamics_context[context_idx + 1],
                     self.plant.world_frame(),
                     [self.srb_body_idx]
                 ).CalcRotationalInertia().CopyToFullMatrix3()
                 srb_orientation_euler_k1 = self.plant.EvalBodyPoseInWorld(
-                    angular_velocity_dynamics_context[context_idx],
+                    self.plant_dynamics_context[context_idx],
                     self.srb_body
                 ).rotation().ToRollPitchYaw().vector()
 
@@ -938,12 +1028,12 @@ class SRBTrajopt:
                 q_dot_k1 = np.zeros_like(srb_context_position_state_k1)
                 q_dot_k2 = np.zeros_like(srb_context_position_state_k2)
                 q_dot_k1 = self.plant.MapVelocityToQDot(
-                    angular_velocity_dynamics_context[context_idx],
-                    self.plant.GetVelocities(angular_velocity_dynamics_context[context_idx]),
+                    self.plant_dynamics_context[context_idx],
+                    self.plant.GetVelocities(self.plant_dynamics_context[context_idx]),
                 )
                 q_dot_k2 = self.plant.MapVelocityToQDot(
-                    angular_velocity_dynamics_context[context_idx + 1],
-                    self.plant.GetVelocities(angular_velocity_dynamics_context[context_idx + 1]),
+                    self.plant_dynamics_context[context_idx + 1],
+                    self.plant.GetVelocities(self.plant_dynamics_context[context_idx + 1]),
                 )
 
                 quat_dot_k1 = q_dot_k1[0:4]
@@ -1133,7 +1223,7 @@ class SRBTrajopt:
 
             for i in range(len(self.contact_forces)):
                 prog.AddBoundingBoxConstraint(
-                    0.,
+                    self.in_stance[i, n]*0.01,
                     self.in_stance[i, n]*max_z_grf,
                     self.contact_forces[i][2, n],
                     ).evaluator().set_description("nonnegative foot z force")
@@ -1411,14 +1501,14 @@ class SRBTrajopt:
             snopt, "Iterations Limits", 1e5
         )
         prog.SetSolverOption(
-            snopt, "Major Iterations Limit", 200 
+            snopt, "Major Iterations Limit", 300 
         )
-        prog.SetSolverOption(snopt, "Major Feasibility Tolerance", 5e-5)
-        prog.SetSolverOption(snopt, "Major Optimality Tolerance", 5e-3)
+        prog.SetSolverOption(snopt, "Major Feasibility Tolerance", 5e-6)
+        prog.SetSolverOption(snopt, "Major Optimality Tolerance", 1e-4)
         prog.SetSolverOption(snopt, "Superbasics limit", 2000)
         prog.SetSolverOption(snopt, "Major print level", 11)
 
-        prog.SetSolverOption(snopt, "Linesearch tolerance", 0.2)
+        prog.SetSolverOption(snopt, "Linesearch tolerance", 0.95)
         prog.SetSolverOption(snopt, 'Print file', 'snopt.out')
 
     def solve_trajopt(self,):
@@ -1434,6 +1524,7 @@ class SRBTrajopt:
 
         res = Solve(prog)
         if res.is_success():
+            print("Solution found!")
             # Make solution trajectories
             timesteps_soln = np.cumsum(np.hstack((0, res.GetSolution(self.h))))
             quat = res.GetSolution(self.body_quat)
@@ -1452,12 +1543,13 @@ class SRBTrajopt:
                 p_W_RF_soln,
             )
             
-            # render the solution
-            render_SRB_trajectory(
-                self.srb_diagram,
-                timesteps_soln[-1],
-                trajectories,
-            )
+            if not self.headless: 
+                # render the solution
+                render_SRB_trajectory(
+                    self.srb_diagram,
+                    timesteps_soln[-1],
+                    trajectories,
+                )
 
         print(res.is_success())
         print(res.get_solver_details().info)
@@ -1529,16 +1621,20 @@ class SRBTrajopt:
 
         N = self.options.N
         # use placeholder walking gait contact sequnce for now 
-        in_stance = np.zeros((8, N))
-        in_stance[0:4, 0:int(N/2)] = 1
-        in_stance[4:8, int(N/2)-1:N] = 1
+        # in_stance = np.zeros((8, N))
+        # in_stance[0:4, 0:int(N/2)] = 1
+        # in_stance[4:8, int(N/2)-1:N] = 1
 
         
         # in_stance = np.ones((8, N))
         # in_stance[0:4, int(N/3):int(3*N/4)] = 0
         # in_stance[4:8, int(N/3):int(3*N/4)] = 0
 
+        in_stance = np.zeros((8, N))
+        in_stance[0:4, 0:int(N/3)] = 1
+        in_stance[4:8, int(2*N/3):] = 1
         self.in_stance = in_stance
+        print(in_stance)
 
     def render_srb(self) -> None:
         """

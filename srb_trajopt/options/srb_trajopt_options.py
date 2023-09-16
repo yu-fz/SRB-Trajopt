@@ -9,7 +9,7 @@ class SRBTrajoptOptions:
         self._dimensions = np.array([0.203, 0.254, 0.457])
         self._mass = 55.
         self._leg_extension_bounds = np.array([0.2, 0.2, 1.0]) # x,y,z
-        self._mu = 0.85
+        self._mu = 1.
         self._color = np.array([0.9608, 0.9608, 0.8627, 1.0])
 
         self.foot_length = 0.1
@@ -23,8 +23,8 @@ class SRBTrajoptOptions:
         self._min_com_height = 0.6
 
         # trajopt parameters
-        self.N = 80 # number of knot points
-        self.T = 3 # total time
+        self.N = 20 # number of knot points
+        self.T = 1. # total time
 
     @property
     def dimensions(self):
