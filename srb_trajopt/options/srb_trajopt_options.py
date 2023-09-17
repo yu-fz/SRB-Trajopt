@@ -1,5 +1,5 @@
 import numpy as np
-
+from util.colors import PASTEL_PEACH, PASTEL_AQUA
 class SRBTrajoptOptions:
     """
     Data structure for storing SRB model parameters for trajectory optimization

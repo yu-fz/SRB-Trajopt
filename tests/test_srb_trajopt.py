@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from trajopt.srb_trajopt import *
+from srb_trajopt.trajopt.srb_trajopt import *
 
 class TestSRBTrajopt(unittest.TestCase):
     def __init__(self, *args, **kwargs):

@@ -1,11 +1,12 @@
 
 from functools import partial
 
-from options import SRBTrajoptOptions
+from srb_trajopt.options import SRBTrajoptOptions
+from util.colors import PASTEL_PEACH, PASTEL_AQUA
 from .srb_builder import SRBBuilder
 from .initial_guess import SRBTrajoptInitialGuess
-from trajectory_utils import *
-from visualization import render_SRB_trajectory
+from srb_trajopt.trajectory_utils import *
+from srb_trajopt.visualization import render_SRB_trajectory
 
 from pydrake.all import (
     PiecewisePolynomial,
@@ -219,6 +220,8 @@ class SRBTrajopt:
     def set_trajopt_initial_guess(self, prog: MathematicalProgram):
         """
         Sets initial guess for SRB state decision variables prior to solver invocation
+
+        # TODO replace this with the initial guess class 
         
         """
         default_com = np.array([0., 0., 1.])
@@ -232,9 +235,7 @@ class SRBTrajopt:
             # set CoM position guess 
             t = n*dt
             x = t*default_com_dot[0]
-            print(f"t: {t}, x: {x}")
             default_com[0] = x
-            print(f"com: {default_com}")
             prog.SetInitialGuess(
                 self.com[:, n],
                 default_com
@@ -497,23 +498,14 @@ class SRBTrajopt:
         #     np.array([1., 0., 0., 0.]),
         #     np.array([1., 0., 0., 0.]),
         # )
-        self.srb_orientation_context = [
+        srb_orientation_context = [
             self.plant.CreateDefaultContext() for i in range(self.options.N)
         ]
-        for n in range(self.N):
-            prog.AddConstraint(
-                OrientationConstraint(
-                    self.plant,
-                    self.srb_body_frame,
-                    RotationMatrix(),
-                    self.plant.world_frame(),
-                    RotationMatrix(),
-                    0.1,
-                    self.srb_orientation_context[n],
-                ),
-                vars=self.get_srb_pose_at_idx(n)
-            )
-    
+        # for n in range(self.N):
+
+        
+        default_context = self.plant.CreateDefaultContext()
+
         prog.AddConstraint(
             OrientationConstraint(
                 self.plant,
@@ -522,10 +514,35 @@ class SRBTrajopt:
                 self.plant.world_frame(),
                 RotationMatrix(),
                 0.1,
-                self.srb_orientation_context[-1],
+                self.plant_dynamics_context[0],
+            ),
+            vars=self.get_srb_pose_at_idx(0)
+        )
+        prog.AddConstraint(
+            OrientationConstraint(
+                self.plant,
+                self.srb_body_frame,
+                RotationMatrix(),
+                self.plant.world_frame(),
+                RotationMatrix(),
+                0.1,
+                self.plant_dynamics_context[-1],
             ),
             vars=self.get_srb_pose_at_idx(-1)
         )
+
+        # prog.AddConstraint(
+        #     OrientationConstraint(
+        #         self.plant,
+        #         self.srb_body_frame,
+        #         RotationMatrix(),
+        #         self.plant.world_frame(),
+        #         RotationMatrix(),
+        #         0.1,
+        #         self.srb_orientation_context[-1],
+        #     ),
+        #     vars=self.get_srb_pose_at_idx(-1)
+        # )
                            
     def add_com_position_constraint(self, prog: MathematicalProgram):
         """
@@ -1486,12 +1503,12 @@ class SRBTrajopt:
         self.add_com_velocity_constraint(prog)
         self.add_com_position_constraint(prog)
         
-        self.add_initial_position_velocity_constraint(prog)
-        self.add_step_length_kinematic_constraint(prog)
-        self.add_angular_velocity_constraint(prog)
-        self.add_contact_wrench_cone_constraint(prog)
-        self.add_foot_velocity_kinematic_constraint(prog)
-        self.add_minimum_com_height_constraint(prog)
+        # self.add_initial_position_velocity_constraint(prog)
+        # self.add_step_length_kinematic_constraint(prog)
+        # self.add_angular_velocity_constraint(prog)
+        # self.add_contact_wrench_cone_constraint(prog)
+        # self.add_foot_velocity_kinematic_constraint(prog)
+        # self.add_minimum_com_height_constraint(prog)
 
         return prog
 
@@ -1626,15 +1643,16 @@ class SRBTrajopt:
         # in_stance[4:8, int(N/2)-1:N] = 1
 
         
-        # in_stance = np.ones((8, N))
-        # in_stance[0:4, int(N/3):int(3*N/4)] = 0
-        # in_stance[4:8, int(N/3):int(3*N/4)] = 0
+        in_stance = np.ones((8, N))
+        in_stance[0:4, int(N/3):int(3*N/4)] = 0
+        in_stance[4:8, int(N/3):int(3*N/4)] = 0
 
-        in_stance = np.zeros((8, N))
-        in_stance[0:4, 0:int(N/3)] = 1
-        in_stance[4:8, int(2*N/3):] = 1
+        # in_stance = np.zeros((8, N))
+        # in_stance[0:4, 0:int(N/3)] = 1
+        # in_stance[4:8, int(2*N/3):] = 1
+        
         self.in_stance = in_stance
-        print(in_stance)
+        # print(in_stance)
 
     def render_srb(self) -> None:
         """

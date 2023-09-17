@@ -1,15 +1,67 @@
 import time 
+from util.colors import PASTEL_PEACH, PASTEL_AQUA
 
 from pydrake.all import (
     Diagram,
+    Rgba,
+    RigidTransform,
+)
+from pydrake.geometry import(
+    Shape,
+    Sphere,
+    GeometryFrame,
+    GeometryInstance,
+    FramePoseVector,
+    SceneGraphInspector,
+    QueryObject,
+    MakePhongIllustrationProperties
 )
 import numpy as np
+
+
+def add_vis_object_to_scene(
+    diagram: Diagram,
+    geom_name: str,
+    geom_shape: Shape,
+    rgba: Rgba = Rgba(0.5, 0.5, 0.5, 1.0)
+):
+    """
+    Adds a visualization geom to the scene graph of the given diagram 
+    """
+    scene_graph = diagram.GetSubsystemByName("scene_graph")
+    source_id = scene_graph.RegisterSource(geom_name)
+    frame_id = scene_graph.RegisterFrame(source_id, GeometryFrame(geom_name))
+    geom_instance = GeometryInstance(RigidTransform(),
+                                     shape=geom_shape,
+                                     name=geom_name,)
+    illus_properties = MakePhongIllustrationProperties(rgba.rgba)
+    geom_instance.set_illustration_properties(illus_properties)
+    scene_graph.RegisterGeometry(source_id, frame_id, geom_instance)
+    return source_id
+
 def render_SRB_trajectory(
     srb_diagram : Diagram,
     trajectory_duration: float,
     trajectories,
 ):
+    
+    # Create visualization geometries for left and right foot
+    left_foot_geom = Sphere(radius=0.01)
+    left_foot_rgba = PASTEL_AQUA
+    right_foot_geom = Sphere(radius=0.01)
+    right_foot_rgba = PASTEL_PEACH
+    left_foot_geom_src_id = add_vis_object_to_scene(diagram=srb_diagram, 
+                                                geom_name="left_foot_geom", 
+                                                geom_shape=left_foot_geom, 
+                                                rgba=left_foot_rgba)
+    
+    # right_foot_geom_src_id = add_vis_object_to_scene(diagram=srb_diagram, 
+    #                                              geom_name="right_foot_geom", 
+    #                                              geom_shape=right_foot_geom, 
+    #                                              rgba=right_foot_rgba)
+
     visualizer = srb_diagram.GetSubsystemByName("visualizer")
+    scene_graph = srb_diagram.GetSubsystemByName("scene_graph")
     plant = srb_diagram.GetSubsystemByName("plant")
     context = srb_diagram.CreateDefaultContext()
     plant_context = plant.GetMyContextFromRoot(context)
@@ -24,6 +76,8 @@ def render_SRB_trajectory(
                      stop=trajectory_duration, 
                      step=1/FPS)
     
+
+    
     for i in range(len(times)):
         #TODO draw foot trajectories
         context.SetTime(times[i])
@@ -31,7 +85,18 @@ def render_SRB_trajectory(
         srb_com_pos = srb_floating_base_traj.get_position_trajectory().value(times[i])
         srb_state = np.concatenate((srb_orientation, srb_com_pos))
         #print(srb_floating_base_traj.value(time[i]).shape)
+        scene_graph_context = scene_graph.GetMyContextFromRoot(context)
+        query_object = scene_graph.get_query_output_port().Eval(scene_graph_context)
+        scene_graph_inspector =  query_object.inspector()
+        left_foot_geom_pose_port = scene_graph.get_source_pose_port(left_foot_geom_src_id)
+        left_foot_geom_frame_id = scene_graph_inspector.FramesForSource(left_foot_geom_src_id).pop()
+        left_foot_geom_pose = FramePoseVector()
+        left_foot_geom_pose.set_value(left_foot_geom_frame_id, RigidTransform())
+        left_foot_geom_pose_port.FixValue(scene_graph_context, 
+                                          left_foot_geom_pose)
         plant.SetPositions(plant_context, srb_state)
+
+        # update visualization markers for left and right foot positions
         srb_diagram.ForcedPublish(context)
     time.sleep(5)
     visualizer.StopRecording()

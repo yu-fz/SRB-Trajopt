@@ -1,4 +1,4 @@
-from options import SRBTrajoptOptions
+from srb_trajopt.options import SRBTrajoptOptions
 from pydrake.all import (
     PiecewisePolynomial,
     MathematicalProgram,

@@ -1,7 +1,7 @@
 
 import unittest
 import numpy as np
-from options.srb_trajopt_options import SRBTrajoptOptions
+from srb_trajopt.options.srb_trajopt_options import SRBTrajoptOptions
 
 class TestSRBTrajoptOptions(unittest.TestCase):
     def __init__(self, *args, **kwargs):
