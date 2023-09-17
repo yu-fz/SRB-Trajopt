@@ -5,19 +5,21 @@ from pydrake.all import (
     Diagram,
     Rgba,
     RigidTransform,
+    Context,
 )
 from pydrake.geometry import(
     Shape,
     Sphere,
+    SceneGraph,
     GeometryFrame,
     GeometryInstance,
     FramePoseVector,
     SceneGraphInspector,
     QueryObject,
+    SourceId,
     MakePhongIllustrationProperties
 )
 import numpy as np
-
 
 def add_vis_object_to_scene(
     diagram: Diagram,
@@ -39,6 +41,24 @@ def add_vis_object_to_scene(
     scene_graph.RegisterGeometry(source_id, frame_id, geom_instance)
     return source_id
 
+def draw_vis_object_pose(
+    scene_graph: SceneGraph,
+    root_context: Context,
+    source_id: SourceId,
+    pose: RigidTransform
+):
+    """
+    
+    """
+    scene_graph_context = scene_graph.GetMyContextFromRoot(root_context)
+    query_object = scene_graph.get_query_output_port().Eval(scene_graph_context)
+    scene_graph_inspector =  query_object.inspector()
+    geom_pose_port = scene_graph.get_source_pose_port(source_id)
+    geom_frame_id = scene_graph_inspector.FramesForSource(source_id).pop()
+    geom_pose = FramePoseVector()
+    geom_pose.set_value(geom_frame_id, pose)
+    geom_pose_port.FixValue(scene_graph_context, geom_pose)
+
 def render_SRB_trajectory(
     srb_diagram : Diagram,
     trajectory_duration: float,
@@ -46,19 +66,19 @@ def render_SRB_trajectory(
 ):
     
     # Create visualization geometries for left and right foot
-    left_foot_geom = Sphere(radius=0.01)
+    left_foot_geom = Sphere(radius=0.025)
     left_foot_rgba = PASTEL_AQUA
-    right_foot_geom = Sphere(radius=0.01)
+    right_foot_geom = Sphere(radius=0.025)
     right_foot_rgba = PASTEL_PEACH
     left_foot_geom_src_id = add_vis_object_to_scene(diagram=srb_diagram, 
                                                 geom_name="left_foot_geom", 
                                                 geom_shape=left_foot_geom, 
                                                 rgba=left_foot_rgba)
     
-    # right_foot_geom_src_id = add_vis_object_to_scene(diagram=srb_diagram, 
-    #                                              geom_name="right_foot_geom", 
-    #                                              geom_shape=right_foot_geom, 
-    #                                              rgba=right_foot_rgba)
+    right_foot_geom_src_id = add_vis_object_to_scene(diagram=srb_diagram, 
+                                                 geom_name="right_foot_geom", 
+                                                 geom_shape=right_foot_geom, 
+                                                 rgba=right_foot_rgba)
 
     visualizer = srb_diagram.GetSubsystemByName("visualizer")
     scene_graph = srb_diagram.GetSubsystemByName("scene_graph")
@@ -76,24 +96,24 @@ def render_SRB_trajectory(
                      stop=trajectory_duration, 
                      step=1/FPS)
     
-
-    
     for i in range(len(times)):
         #TODO draw foot trajectories
         context.SetTime(times[i])
         srb_orientation = srb_floating_base_traj.get_orientation_trajectory().value(times[i])
         srb_com_pos = srb_floating_base_traj.get_position_trajectory().value(times[i])
         srb_state = np.concatenate((srb_orientation, srb_com_pos))
-        #print(srb_floating_base_traj.value(time[i]).shape)
-        scene_graph_context = scene_graph.GetMyContextFromRoot(context)
-        query_object = scene_graph.get_query_output_port().Eval(scene_graph_context)
-        scene_graph_inspector =  query_object.inspector()
-        left_foot_geom_pose_port = scene_graph.get_source_pose_port(left_foot_geom_src_id)
-        left_foot_geom_frame_id = scene_graph_inspector.FramesForSource(left_foot_geom_src_id).pop()
-        left_foot_geom_pose = FramePoseVector()
-        left_foot_geom_pose.set_value(left_foot_geom_frame_id, RigidTransform())
-        left_foot_geom_pose_port.FixValue(scene_graph_context, 
-                                          left_foot_geom_pose)
+        p_W_LF = left_foot_pos_traj.value(times[i])
+        p_W_RF = right_foot_pos_traj.value(times[i])
+        # draw visualization markers for left and right foot positions
+        draw_vis_object_pose(scene_graph=scene_graph,
+                             root_context=context,
+                             source_id=left_foot_geom_src_id,
+                             pose=RigidTransform(p_W_LF))
+        draw_vis_object_pose(scene_graph=scene_graph,
+                             root_context=context,
+                             source_id=right_foot_geom_src_id,
+                             pose=RigidTransform(p_W_RF))
+
         plant.SetPositions(plant_context, srb_state)
 
         # update visualization markers for left and right foot positions

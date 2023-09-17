@@ -506,30 +506,30 @@ class SRBTrajopt:
         
         default_context = self.plant.CreateDefaultContext()
 
-        prog.AddConstraint(
-            OrientationConstraint(
-                self.plant,
-                self.srb_body_frame,
-                RotationMatrix(),
-                self.plant.world_frame(),
-                RotationMatrix(),
-                0.1,
-                self.plant_dynamics_context[0],
-            ),
-            vars=self.get_srb_pose_at_idx(0)
-        )
-        prog.AddConstraint(
-            OrientationConstraint(
-                self.plant,
-                self.srb_body_frame,
-                RotationMatrix(),
-                self.plant.world_frame(),
-                RotationMatrix(),
-                0.1,
-                self.plant_dynamics_context[-1],
-            ),
-            vars=self.get_srb_pose_at_idx(-1)
-        )
+        # prog.AddConstraint(
+        #     OrientationConstraint(
+        #         self.plant,
+        #         self.srb_body_frame,
+        #         RotationMatrix(),
+        #         self.plant.world_frame(),
+        #         RotationMatrix(),
+        #         0.1,
+        #         self.plant_dynamics_context[0],
+        #     ),
+        #     vars=self.get_srb_pose_at_idx(0)
+        # )
+        # prog.AddConstraint(
+        #     OrientationConstraint(
+        #         self.plant,
+        #         self.srb_body_frame,
+        #         RotationMatrix(),
+        #         self.plant.world_frame(),
+        #         RotationMatrix(),
+        #         0.1,
+        #         self.plant_dynamics_context[-1],
+        #     ),
+        #     vars=self.get_srb_pose_at_idx(-1)
+        # )
 
         # prog.AddConstraint(
         #     OrientationConstraint(
@@ -1503,12 +1503,12 @@ class SRBTrajopt:
         self.add_com_velocity_constraint(prog)
         self.add_com_position_constraint(prog)
         
-        # self.add_initial_position_velocity_constraint(prog)
-        # self.add_step_length_kinematic_constraint(prog)
-        # self.add_angular_velocity_constraint(prog)
-        # self.add_contact_wrench_cone_constraint(prog)
-        # self.add_foot_velocity_kinematic_constraint(prog)
-        # self.add_minimum_com_height_constraint(prog)
+        self.add_initial_position_velocity_constraint(prog)
+        self.add_step_length_kinematic_constraint(prog)
+        self.add_angular_velocity_constraint(prog)
+        self.add_contact_wrench_cone_constraint(prog)
+        self.add_foot_velocity_kinematic_constraint(prog)
+        self.add_minimum_com_height_constraint(prog)
 
         return prog
 
