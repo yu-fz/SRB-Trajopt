@@ -9,6 +9,7 @@ from pydrake.all import (
     UnitInertia,
     StartMeshcat,
     MeshcatVisualizer,
+    FixedOffsetFrame
 )
 
 from pydrake.math import (
@@ -17,8 +18,11 @@ from pydrake.math import (
 from pydrake.geometry import(
     Rgba,
     Box,
-    Sphere
+    Sphere,
 )
+
+
+import numpy as np
 
 class SRBBuilder:
     def __init__(self, 
@@ -42,7 +46,7 @@ class SRBBuilder:
             meshcat_vis.set_name("visualizer")
         box_size = self.options.dimensions
         box_color = self.options.color
-        box_mass = self.options.mass 
+        box_mass = self.options.body_mass 
         
         # create unit inertia for a box 
         box_unit_inertia = UnitInertia.SolidBox(box_size[0], box_size[1], box_size[2])
@@ -55,8 +59,8 @@ class SRBBuilder:
         body = plant.AddRigidBody("body", srb_instance, box_spatial_inertia)
 
         # register visual geometry with plant 
-        shape = Box(box_size)
-        plant.RegisterVisualGeometry(body, RigidTransform(), shape, "body_vis_geom", box_color)
+        body_shape = Box(box_size)
+        plant.RegisterVisualGeometry(body, RigidTransform(), body_shape, "body_vis_geom", box_color)
         plant.Finalize()
 
         srb_diagram = builder.Build()

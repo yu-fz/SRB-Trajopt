@@ -172,6 +172,27 @@ def get_foot_contact_positions(
     rotated_foot_contact_positions = jnp.matmul(srb_yaw_rotation_mat, foot_contact_positions)
     return rotated_foot_contact_positions
 
+
+@jax.jit
+def invert_inertia_mat_jax(inertia_mat):
+    """
+    returns the inverse of the input inertia matrix and its gradient.
+    """
+    def _compute_inverse_inertia_mat(inertia_mat):
+        return jnp.linalg.inv(inertia_mat)
+    
+    inverse_mat_val = _compute_inverse_inertia_mat(inertia_mat)
+    inverse_mat_jacobian_fn = jax.jacrev(_compute_inverse_inertia_mat)
+    inverse_mat_jacobian = inverse_mat_jacobian_fn(inertia_mat)
+    return inverse_mat_val, inverse_mat_jacobian.reshape(9, -1, order='F')
+
+    # omega_dot_val = _compute_omega_dot(*args)
+    # # do not compute jacobians wrt the constant foot length and width
+    # omega_dot_jacobian_fn = jax.jacrev(_compute_omega_dot, argnums=tuple(range(len(args) - 2)))
+    # omega_dot_jacobian = omega_dot_jacobian_fn(*args)
+
+
+    return jnp.linalg.inv(inertia_mat)
 @jax.jit
 def compute_omega_dot_jax(*args):
     """

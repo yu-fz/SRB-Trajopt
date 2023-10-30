@@ -7,9 +7,14 @@ class SRBTrajoptOptions:
     def __init__(self) -> None:
         # SRB model parameters
         self._dimensions = np.array([0.203, 0.254, 0.457])
-        self._mass = 55.
-        self._leg_extension_bounds = np.array([0.2, 0.2, 1.0]) # x,y,z
-        self._mu = 1.
+        #self._dimensions = np.ones(3)/3
+        self._body_mass = 50.
+        self._max_leg_extension_bounds = np.array([0.1, # x
+                                                   0.1, # y
+                                                   1.0, # z
+                                                   ])
+        self._min_leg_extension_bounds = np.array([-0.2, -0.2, 0.2])
+        self._mu = 0.85
         self._color = np.array([0.9608, 0.9608, 0.8627, 1.0])
 
         self.foot_length = 0.1
@@ -19,12 +24,12 @@ class SRBTrajoptOptions:
 
         # max normalized Z axis grf 
         self._g = 9.81
-        self._max_z_grf = self._mass*9.81*5
+        self._max_z_grf = self._body_mass*9.81*1.5
         self._min_com_height = 0.6
 
         # trajopt parameters
-        self.N = 20 # number of knot points
-        self.T = 1. # total time
+        self.N = 7   # number of knot points
+        self.T = 1.  # total time
 
     @property
     def dimensions(self):
@@ -36,22 +41,31 @@ class SRBTrajoptOptions:
         self._dimensions = dims
 
     @property
-    def mass(self):
-        return self._mass
+    def body_mass(self):
+        return self._body_mass
     
-    @mass.setter
-    def mass(self, mass: float):
-        assert type(mass) == float, "Mass must be a float"
-        self._mass = mass
+    @body_mass.setter
+    def body_mass(self, mass: float):
+        assert type(mass) == float or type(mass) == int, "Mass must be a float or int"
+        self._body_mass = mass
 
     @property
-    def leg_extension_bounds(self):
-        return self._leg_extension_bounds
-    
-    @leg_extension_bounds.setter
-    def leg_extension_bounds(self, leg_extension_bounds: np.ndarray):
-        assert len(leg_extension_bounds) == 3, "Leg extension bounds must be a 3D vector"
-        self._leg_extension_bounds = leg_extension_bounds
+    def max_leg_extension_bounds(self):
+        return self._max_leg_extension_bounds
+
+    @property
+    def min_leg_extension_bounds(self):
+        return self._min_leg_extension_bounds
+
+    @min_leg_extension_bounds.setter
+    def min_leg_extension_bounds(self, min_leg_extension_bounds: np.ndarray):
+        assert len(min_leg_extension_bounds) == 3, "Leg extension bounds must be a 3D vector"
+        self._min_leg_extension_bounds = min_leg_extension_bounds
+
+    @max_leg_extension_bounds.setter
+    def max_leg_extension_bounds(self, max_leg_extension_bounds: np.ndarray):
+        assert len(max_leg_extension_bounds) == 3, "Leg extension bounds must be a 3D vector"
+        self._max_leg_extension_bounds = max_leg_extension_bounds
     
     @property
     def max_z_grf(self):
